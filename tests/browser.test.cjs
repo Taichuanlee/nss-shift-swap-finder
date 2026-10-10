@@ -151,7 +151,6 @@ test('real browser local parsing, result states, selection reset, no outbound re
     assert.equal(await page.locator('#cycle-end').textContent(),'2026-12-06');
     assert.match(await page.locator('#result-state').textContent(),/尚未確認/);
     assert.doesNotMatch(await page.locator('#result-issues').textContent(),/日期順序異常|日期有缺漏/);
-    const guidesBeforeEdit=await page.evaluate(()=>window.scrollGuides.length);
     await page.locator('#cycle-start').fill('2026-11-10');
     assert.equal(await page.locator('#confirm-cycle').isDisabled(),true);
     assert.match(await page.locator('#cycle-state').textContent(),/超出班表/);
@@ -160,10 +159,12 @@ test('real browser local parsing, result states, selection reset, no outbound re
     await page.locator('#confirm-cycle').click();
     assert.match(await page.locator('#result-state').textContent(),/匯入完成/);
     assert.deepEqual(await progress(),['completed','completed','completed','completed']);
+    await guidedTo('identity-selection');
+    const guidesAfterConfirm=await page.evaluate(()=>window.scrollGuides.length);
     await page.locator('#cycle-start').fill('2026-11-09');
     assert.match(await page.locator('#result-state').textContent(),/尚未確認/);
     assert.deepEqual(await progress(),['completed','completed','current','pending']);
-    assert.equal(await page.evaluate(()=>window.scrollGuides.length),guidesBeforeEdit);
+    assert.equal(await page.evaluate(()=>window.scrollGuides.length),guidesAfterConfirm);
     await page.locator('#confirm-cycle').click();
     assert.match(await page.locator('#status').textContent(),/匯入完成/);
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
@@ -171,6 +172,72 @@ test('real browser local parsing, result states, selection reset, no outbound re
       Object.defineProperty(ReadableStream.prototype,Symbol.asyncIterator,window.iteratorDescriptor);delete window.iteratorDescriptor;
     });
   }
+  // v0.3: actual UI selection, explicit confirmation, remembered ID and resets.
+  async function identityImport(rows) {
+    const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(rows),'Identity');
+    await choose('identity.xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',Buffer.from(XLSX.write(wb,{type:'buffer',bookType:'xlsx'})));
+    assert.equal(await page.locator('#identity-selection').isVisible(),false);
+    assert.equal(await page.locator('#personal-schedule').isVisible(),false);
+    await parse(); assert.equal(await page.locator('#identity-selection').isVisible(),false);
+    await page.locator('#confirm-cycle').click(); await guidedTo('identity-selection');
+  }
+  const identityRows=grid(dates(33,Date.UTC(2026,11,23)));
+  identityRows[3][1]=identityRows[2][1]; // two different IDs, same synthetic name
+  await identityImport(identityRows);
+  assert.equal(await page.locator('#personal-schedule').isVisible(),false);
+  await page.locator('#employee-search').fill('EXAMPLE');
+  assert.equal(await page.locator('.employee-option').count(),2);
+  await page.locator('.employee-option').first().click();
+  assert.equal(await page.locator('#identity-review').isVisible(),true);
+  assert.equal(await page.locator('#personal-schedule').isVisible(),false);
+  await page.locator('#confirm-identity').click();await guidedTo('personal-schedule');
+  assert.equal(await page.locator('.personal-week').count(),4);
+  assert.equal(await page.locator('.personal-day').count(),28);
+  assert.equal(await page.locator('.personal-day time').first().getAttribute('datetime'),'2026-12-28');
+  // Modify start to Wednesday across New Year: clear the calendar immediately.
+  await page.locator('#cycle-start').fill('2026-12-23');
+  assert.equal(await page.locator('#identity-selection').isVisible(),false);
+  assert.equal(await page.locator('.personal-day').count(),0);
+  await page.locator('#confirm-cycle').click();await guidedTo('identity-selection');
+  assert.equal(await page.locator('#remembered-identity').isVisible(),true);
+  await page.locator('#use-remembered').click();
+  assert.equal(await page.locator('#personal-schedule').isVisible(),false);
+  await page.locator('#confirm-identity').click();await guidedTo('personal-schedule');
+  assert.equal(await page.locator('.personal-day time').first().getAttribute('datetime'),'2026-12-23');
+  assert.equal(await page.locator('.day-weekday').first().textContent(),'週三');
+  assert.equal(await page.locator('.personal-day time').last().getAttribute('datetime'),'2027-01-19');
+  const expected=identityRows[2].slice(2,30);
+  assert.deepEqual(await page.locator('.personal-day strong').allTextContents(),expected);
+  const stored=await page.evaluate(()=>JSON.parse(localStorage.getItem(window.NSSShiftSwapFinder.PersonalSchedule.STORAGE_KEY)));
+  assert.deepEqual(stored,{version:1,id:'EXAMPLE001'});
+  await page.setViewportSize({width:320,height:740});
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+  await page.screenshot({path:path.join(project,'test-data/personal-mobile-synthetic.png'),fullPage:true});
+  await page.locator('#personal-schedule').screenshot({path:path.join(project,'test-data/personal-calendar-synthetic.png')});
+  await page.setViewportSize({width:1280,height:900});
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+  assert.equal(await page.locator('.personal-day').count(),28);
+  await page.setViewportSize({width:320,height:740});
+  await page.locator('#switch-employee').click();await guidedTo('identity-selection');
+  assert.equal(await page.locator('.personal-day').count(),0);
+  await page.locator('#employee-search').fill(identityRows[2][1]);
+  assert.equal(await page.locator('.employee-option').count(),2);
+  await page.locator('.employee-option').nth(1).click();
+  assert.match(await page.locator('#identity-review-name').textContent(),/EXAMPLE002/);
+  await page.locator('#confirm-identity').click();await guidedTo('personal-schedule');
+  assert.deepEqual(await page.locator('.personal-day strong').allTextContents(),identityRows[3].slice(2,30));
+  await identityImport(identityRows);
+  assert.equal(await page.locator('#remembered-identity').isVisible(),true);
+  assert.equal(await page.locator('#personal-schedule').isVisible(),false);
+  await page.locator('#use-remembered').click();await page.locator('#confirm-identity').click();await guidedTo('personal-schedule');
+  const changedRows=identityRows.map(row=>row.slice()); changedRows[2][0]='NEW001';changedRows[3][0]='NEW002';
+  await identityImport(changedRows);
+  assert.equal(await page.locator('#remembered-identity').isVisible(),false);
+  await page.locator('#employee-search').fill('NEW001');await page.locator('.employee-option').click();
+  await page.locator('#confirm-identity').click();await guidedTo('personal-schedule');
+  await page.locator('#forget-identity').click();
+  assert.equal(await page.evaluate(()=>localStorage.getItem(window.NSSShiftSwapFinder.PersonalSchedule.STORAGE_KEY)),null);
+  await page.setViewportSize({width:390,height:844});
   // Validation warnings cannot be bypassed by confirming a known typo.
   const unknownRows=reviewRows.map(r=>r.slice());unknownRows[2][12]='OX';
   await choose('unknown-code.pdf','application/pdf',pdf([unknownRows]));await parse();

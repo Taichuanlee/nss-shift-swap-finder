@@ -1,8 +1,8 @@
 # NSS Shift Swap Finder
 
-護理師換班搜尋工具 · v0.2A-2
+護理師換班搜尋工具 · v0.3
 
-沿用既有 PDF／Excel 解析與首頁設計，加入通用日期推斷、安全自動修正及正式四週期確認。所有資料與確認紀錄只保留於瀏覽器記憶體。本階段不提供逐格編輯、換班搜尋或換班建議。
+沿用既有 PDF／Excel 解析與首頁設計，加入通用日期推斷、安全自動修正及正式四週期確認。班表與匯入確認紀錄只保留於瀏覽器記憶體；明確確認身分後，只將該員工 ID 記住於這部裝置的 localStorage。本階段不提供逐格編輯、換班搜尋或換班建議。
 
 ## Mac 本機使用
 
@@ -65,6 +65,7 @@ How it works 說明本階段的四個匯入步驟，明確區分讀取班表與�
 index.html                 既有首頁、工作表選擇、日期與週期確認、結果與警告
 css/style.css              原有設計與結果區樣式
 js/app.js                  選檔與非同步狀態、確認操作、統計呈現
+js/personal-schedule.js    身分搜尋與確認、記住唯一 ID、個人 28 天班表
 js/import-confirmation.js  日期建議／決策、修正追溯、正式四週期確認
 js/schedule-model.js       資料模型、共用日期／班別、表格轉換
 js/schedule-validator.js   全域與局部驗證
@@ -91,7 +92,7 @@ test-data/                本機私有測試、截圖與瀏覽器 profile（Git 
 - **PDF.js 6.4.299**：Mozilla 官方 `pdfjs-dist` 的 legacy ES module 與同版 Worker，適合文字座標擷取。按解析時才載入，Worker 在裝置內運作。CMap／標準字型需求僅抓取本機資源，不採用遠端文件 URL。
 - **SheetJS 0.20.3**：官方完整 standalone script，以本機 deferred script 載入，涵蓋 XLSX／XLS 與日期系統。未使用 Worker；大型 Excel 仍可能暫時阻塞主執行緒。
 - 無其他執行期依賴、框架、資料庫或雲端解析。來源、授權與主要檔案校驗碼見 `vendor/README.md`。
-- 僅同源程式、Worker、字型資源有 GET 請求；班表以 `File.arrayBuffer()` 讀入記憶體，不送到伺服器。CSP 限制外部連線與表單提交。程式不記錄完整班表、不使用 localStorage／IndexedDB，也不保存解析結果。
+- 僅同源程式、Worker、字型資源有 GET 請求；班表以 `File.arrayBuffer()` 讀入記憶體，不送到伺服器。CSP 限制外部連線與表單提交。程式不記錄完整班表、只使用 localStorage 記住已確認的員工 ID，不使用 IndexedDB，也不保存解析結果。
 - `test-data/` 已建立並忽略；PDF／Excel 副檔名亦預設忽略。請勿提交任何真實班表／個資。未修改 `sources/`（開發時此目錄不存在）。
 
 ## 測試
@@ -101,7 +102,7 @@ test-data/                本機私有測試、截圖與瀏覽器 profile（Git 
 需要 Node.js，無需安裝套件即可執行核心測試：
 
 ```sh
-node --test tests/parsers.test.cjs tests/pdf-diagnostics.test.cjs tests/import-confirmation.test.cjs tests/date-inference.test.cjs
+node --test tests/parsers.test.cjs tests/pdf-diagnostics.test.cjs tests/import-confirmation.test.cjs tests/date-inference.test.cjs tests/personal-schedule.test.cjs
 python3 -B tests/server.test.py
 ```
 
@@ -172,3 +173,11 @@ PDF.js 6.4.299 的 `getTextContent()` 使用 `ReadableStream` 非同步迭代。
 共用 `normalizeShift()` 根據已確認的片段組合辨識，不逐一列舉完整字串。單一 A／E／N 搭配「休」及／或 `-8`（各最多一次）正規化為該工作班別，註記順序可不同、片段間可有或沒有空白；`O N` 正規化為休假代碼 `ON`。必須完整辨識整個字串，不能跳過未知字元；`A特`、`E病`、「休」單獨出現及重複註記仍為未知。`ON` 與其他既有休假白名單保持原值，不因包含 N 或「休」而誤判。
 
 `employees[].shifts[date]` 儲存正規化後班別，供驗證及未來運算使用；`shiftDetails[date]` 保留該日期每個來源儲存格的 `{raw, normalized, source}`，包含重複頁面與衝突資料，僅存在記憶體。同日註記不同但正規化班別相同，不視為班別衝突；實際班別不同仍阻擋該員工。日期驗證維持原規則；正式四週期未明確確認仍阻擋匯入完成。
+
+## 個人班表（v0.3）
+
+匯入驗證與正式四週期確認通過後，以姓名或員工編號搜尋自己，核對姓名與編號，按「確認這是我」。完整 28 天依實際開始日分成四列、每列七天，顯示日期、星期與原有正規化班別；不包含週期外日期，不提供編輯或換班搜尋。
+
+同名同仁分別顯示員工編號。只有可靠且唯一的編號可記住及重新比對；下次匯入可選「繼續使用上次身分」，仍需明確確認。不依姓名自動配對，找不到或編號重複時須重新選擇。儲存項目僅包含版本與已確認 ID，沒有姓名、每日班別或其他同仁資料，可按「清除記住的身分」移除；瀏覽器拒絕儲存時仍可查看本次班表。
+
+「切換同仁」立即清除個人班表並要求重新確認。更換檔案、重新解析、切換工作表或修改正式四週期，也會使當前身分與個人班表失效。

@@ -13,13 +13,14 @@
   <script src="js/pdf-parser.js" defer></script>
   <script src="js/excel-parser.js" defer></script>
   <script src="js/import-confirmation.js" defer></script>
+  <script src="js/personal-schedule.js" defer></script>
   <script src="js/app.js" defer></script>
 </head>
 <body>
   <main class="page">
     <header class="header">
       <div class="brand-mark" aria-hidden="true">N</div>
-      <span class="version">v0.2A-2</span>
+      <span class="version">v0.3</span>
     </header>
     <section class="intro" aria-labelledby="page-title">
       <p class="eyebrow">讓休假安排，多一個可能</p>
@@ -60,7 +61,7 @@
           <li><span class="step-number">1</span><div><h3>上傳班表</h3><p>選擇或拖曳 PDF、Excel，檔案留在您的裝置。</p></div></li>
           <li><span class="step-number">2</span><div><h3>解析班表</h3><p>按「開始解析」讀取班表，檢查日期與班別；這一步還未完成匯入。</p></div></li>
           <li><span class="step-number">3</span><div><h3>確認四週期</h3><p>核對或修改開始日期，再明確確認正式 28 天週期。</p></div></li>
-          <li><span class="step-number">4</span><div><h3>匯入完成</h3><p>資料驗證與四週期確認通過後，才完成匯入。</p></div></li>
+          <li><span class="step-number">4</span><div><h3>匯入完成</h3><p>資料驗證與四週期確認通過後，選擇自己並確認身分，即可查看個人班表。</p></div></li>
         </ol>
         <p class="guide-note">日期或班別有待處理問題時，請先核對原班表。換班搜尋尚未開放。</p>
       </section>
@@ -91,6 +92,28 @@
       <dl id="result-summary" class="result-summary"></dl>
       <p class="phase-note">只有日期、班別與正式四週期確認全部通過，才完成匯入確認。本階段不提供換班搜尋。</p>
       <details id="issue-details" tabindex="-1"><summary>查看錯誤與警告</summary><ul id="result-issues" class="result-issues"></ul></details>
+    </section>
+    <section class="card identity-card" id="identity-selection" tabindex="-1" aria-labelledby="identity-title" hidden>
+      <h2 id="identity-title">選擇自己，確認身分</h2>
+      <p class="confirmation-help">請核對姓名與員工編號，避免同名同仁選錯。班表不可在此修改。</p>
+      <div id="identity-picker">
+        <div id="remembered-identity" class="date-suggestion" hidden><p>上次確認的身分</p><strong id="remembered-name"></strong><button id="use-remembered" type="button" class="reject-button">繼續使用上次身分</button></div>
+        <label for="employee-search">搜尋姓名或員工編號</label>
+        <input id="employee-search" type="search" autocomplete="off" placeholder="輸入姓名或員工編號" aria-describedby="identity-status">
+        <div id="employee-results" class="employee-results" aria-label="搜尋結果"></div>
+        <div id="identity-review" class="date-suggestion" hidden><p>請確認這是您本人</p><strong id="identity-review-name"></strong><button id="confirm-identity" class="confirm-button" type="button">確認這是我</button></div>
+      </div>
+      <div id="confirmed-identity" hidden><strong id="confirmed-name"></strong><button id="switch-employee" class="reject-button" type="button">切換同仁</button></div>
+      <p id="identity-status" class="status" role="status" aria-live="polite"></p>
+      <p class="confirmation-help">確認後只在這部裝置記住您的員工編號，不儲存姓名、班表或其他同仁資料。每次匯入仍需重新確認。</p>
+      <button id="forget-identity" class="remove-file" type="button">清除記住的身分</button>
+    </section>
+    <section class="card personal-card" id="personal-schedule" tabindex="-1" aria-labelledby="personal-title" hidden>
+      <h2 id="personal-title">您的四週期班表</h2>
+      <p id="personal-range" class="confirmation-help"></p>
+      <p class="calendar-legend"><span>● A／E／N 上班</span><span>● O 系列休假</span></p>
+      <div id="personal-weeks"></div>
+      <p class="phase-note">完整顯示正式四週期 28 天，依開始日期排列。此處只供查看；換班搜尋尚未開放。</p>
     </section>
     <aside class="privacy" aria-label="隱私提醒"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z" stroke="currentColor" stroke-width="1.7"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><div><strong>您的班表，留在您的裝置</strong><p>班表資料將於您的裝置上處理，不會上傳至伺服器。</p></div></aside>
     <footer>NSS Shift Swap Finder <span>·</span> 為護理師的時間，多留一點彈性</footer>

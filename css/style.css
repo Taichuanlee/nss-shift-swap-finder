@@ -15,3 +15,21 @@
 @media(max-width:360px){.import-progress{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}}
 
 #cycle-status-slot #status{padding:12px 14px;margin:0 0 16px;border-radius:10px;background:#edf5f0;font-size:14px;font-weight:600;line-height:1.8}
+
+/* Identity and four consecutive seven-day rows, including narrow phones. */
+.identity-card,.personal-card {margin-top:24px;scroll-margin-top:24px;min-width:0}
+.identity-card:focus-visible,.personal-card:focus-visible {outline:3px solid var(--teal);outline-offset:4px}
+.identity-card input {display:block;width:100%;min-width:0;min-height:48px;margin:8px 0 12px;padding:12px;border:1px solid var(--border);border-radius:10px;font:inherit}
+.employee-results {display:grid;gap:8px;max-height:320px;overflow-y:auto}
+.employee-option {text-align:left;min-height:48px;padding:12px;background:#f4faf8;border:1px solid #d4e6df;border-radius:10px;font:inherit;color:var(--ink);overflow-wrap:anywhere;cursor:pointer}
+.identity-card strong {display:block;overflow-wrap:anywhere;margin-bottom:12px}
+.identity-card button {max-width:100%;white-space:normal;overflow-wrap:anywhere}
+.calendar-legend {display:flex;flex-wrap:wrap;gap:16px;font-size:13px;color:#257263;margin:18px 0}
+.calendar-legend span+span {color:#87673b}
+.personal-week {display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;list-style:none;padding:0;margin:0 0 8px}
+.personal-day {display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 2px;border-radius:10px;border:1px solid #d4e6df;background:#edf7f3;color:#205e50;min-width:0}
+.personal-day.leave {background:#faf4e8;border-color:#ecdfc6;color:#775e32}
+.personal-day time {font-size:13px;font-weight:600}
+.day-weekday {font-size:12px}
+.personal-day strong {font-size:20px}
+@media(max-width:480px) {.identity-card,.personal-card {padding:16px}.personal-week {gap:3px}.personal-day {gap:5px;padding:10px 1px;border-radius:7px}.personal-day time,.day-weekday {font-size:10px}.personal-day strong {font-size:15px}}

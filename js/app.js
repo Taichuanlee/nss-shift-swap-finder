@@ -44,6 +44,7 @@
     const confirmCycle = root.querySelector('#confirm-cycle');
     const progressSteps = Array.from(root.querySelectorAll('#import-progress li'));
     const issueDetails = root.querySelector('#issue-details');
+    const personal = ns.PersonalSchedule.createController(root, guideTo);
     function setProgress(current, complete = false, currentLabel = '目前階段') {
       progressSteps.forEach((step,index) => {
         const state = complete || index < current ? 'completed' : index === current ? 'current' : 'pending';
@@ -62,7 +63,7 @@
       // Let the result card and the button settle before scrolling. Fast Excel
       // parsing can otherwise race the browser's scroll anchoring after a click.
       window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
-        if (token !== generation || revision !== guidanceRevision || resultPanel.hidden) return;
+        if (token !== generation || revision !== guidanceRevision || resultPanel.hidden || target.hidden) return;
         // Focus the section, not the date input: do not open a mobile keyboard.
         target.focus({preventScroll:true});
         const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -73,6 +74,7 @@
     function clearResult() {
       generation++;
       result = null;
+      personal.setSchedule(null);
       placeStatus(root.querySelector('#import-status-slot'));
       dateSuggestions.replaceChildren();
       cycleStart.value = ''; cycleEnd.textContent = ''; cycleFields.disabled = true;
@@ -90,6 +92,7 @@
       resultSummary.replaceChildren(); issues.replaceChildren();
       renderConfirmation(model);
       resultPanel.hidden = false;
+      personal.setSchedule(model);
       const complete = model.validation.completeEmployeeCount;
       const stats = [
         ['檔案類型', model.sourceType === 'pdf' ? 'PDF' : 'Excel'],
@@ -118,7 +121,7 @@
       const unresolvedDates = model.importConfirmation.dateSuggestions.some(s => !Services.importConfirmation.resolved(s));
       const blocked = !model.validation.basicValidationPassed || model.errors.length > 0 || unresolvedDates;
       let message = !blocked ? '基礎驗證通過，尚未確認正式四週期，不能進入換班搜尋。' : '已讀取檔案，解析或驗證有問題；請查看下方結果。';
-      if (model.validation.readyForSearch) message = '匯入完成。換班搜尋尚未開放。';
+      if (model.validation.readyForSearch) message = '匯入完成。請在下方選擇自己並確認身分。';
       else if (!blocked) message = '班表解析成功！還差最後一步，請確認正式四週期。';
       if (model.pdfDiagnostics && !model.validation.basicValidationPassed) {
         const stage = model.pdfDiagnostics.stage;
@@ -193,6 +196,7 @@
     cycleStart.addEventListener('input', () => {
       if (!result) return;
       guidanceRevision++;
+      personal.invalidate();
       const value = cycleStart.value;
       result = Services.importConfirmation.setCycleStart(result, value);
       showResult(result);
@@ -205,6 +209,7 @@
       result = Services.importConfirmation.setCycleStart(result, cycleStart.value);
       Services.importConfirmation.confirmCycle(result);
       showResult(result);
+      if (result.validation.readyForSearch) guideTo(root.querySelector('#identity-selection'));
     });
 
     function announce(message, error = false) {
@@ -282,6 +287,7 @@
       const token = ++generation;
       const sheetName = sheetSelect.value || undefined;
       result = null;
+      personal.setSchedule(null);
       resultPanel.hidden = true;
       resultSummary.replaceChildren();
       issues.replaceChildren();
@@ -306,6 +312,7 @@
       } catch (error) {
         if (token !== generation) return;
         result = null;
+        personal.setSchedule(null);
         setProgress(1,false,'解析失敗');
         announce(error.message || '無法解析班表，請確認檔案格式。', true);
         root.querySelector('#file-state').textContent = '讀取／解析失敗';
@@ -314,7 +321,7 @@
       }
     });
     sheetSelect.addEventListener('change', () => {
-      generation++; result = null; resultPanel.hidden = true;
+      generation++; result = null; personal.setSchedule(null); resultPanel.hidden = true;
       resultSummary.replaceChildren(); issues.replaceChildren();
       parseButton.disabled = !selectedFile;
       setProgress(1);
@@ -323,6 +330,6 @@
   }
 
   // Stable namespace for future NSS integration and separately loaded services.
-  Object.assign(ns, {version: '0.2A-2', FileFormat, Services});
+  Object.assign(ns, {version: '0.3', FileFormat, Services});
   createImportController(document);
 })();
