@@ -203,3 +203,27 @@ PDF.js 6.4.299 的 `getTextContent()` 使用 `ReadableStream` 非同步迭代。
 對每位交換者，比較交換前後包含 D1 或 D2 的四天視窗數。兩處相鄰的檢查範圍會合併；相隔的範圍各自比較，避免一處改善抵銷另一處新增問題。某個範圍視窗數增加時，顯示「⚠️ 破碎班」並指出本人或對方；原有未惡化或改善的不提醒。這項判定不排除候選人，也不改變對方連續上班的安全限制。
 
 每個交換日期內依「無新增風險的同班別 → 只有破碎班的同班別 → 有六天以上連續上班提醒的同班別 → 緊急跨班別」排列，同類別較少警告先列，條件相同保留原班表員工順序。同時有連續上班與破碎班的同班別結果，列在只有連續上班的結果後。排序不改變候選人集合或人數。
+
+## GitHub Pages 部署（v0.5）
+
+GitHub Actions 使用官方 Pages Actions，僅從 Git 追蹤的 `index.html`、`css/`、`js/`、`vendor/` 建立 `dist/pages` 發布包。`test-data/`、`tests/`、`scripts/`、`sources/`、根目錄 README 與其他資料不會發布。打包前及上傳前皆以封閉的檔案類型清單檢查；禁止 PDF、Excel、環境檔、隱藏檔、連結及額外目錄，也會拒絕改名成程式檔的 PDF／Office 文件。檢查失敗即停止發布，不輸出私人檔名或內容。
+
+本機檢查（不會部署）：
+
+```sh
+python3 -B tests/pages.test.py
+python3 -B scripts/build-pages.py --output dist/pages
+python3 -B scripts/build-pages.py --check-only dist/pages
+```
+
+`tests/pages-browser.test.cjs` 另以本機 Chrome 驗證實際發布包的專案子路徑、PDF Worker／CMap／字型、PDF／XLSX／XLS 匯入與 320px 畫面；使用合成資料，需既有 Playwright 測試環境及先建立 `dist/pages`。
+
+打包輸出必須是尚不存在的目錄，避免覆寫已有檔案；若已執行過，可換用新的 `--output` 目錄。Python 僅用於建置與測試，發布後是靜態網頁，不需要 Python 伺服器。CSS、JS、PDF.js Worker／CMap／字型與 SheetJS 保持專案相對路徑，適用於 `https://<帳號>.github.io/nss-shift-swap-finder/`。
+
+GitHub 網頁設定：
+
+1. 開啟 Repository → Settings → Pages，將 Build and deployment 的 Source 設為 **GitHub Actions**。
+2. 由維護者自行 Commit／Push 設定至 `main`；之後每次 Push 至 `main` 都會先檢查發布包，再自動部署。此設定建立過程沒有執行 Commit、Push 或部署。
+3. 在 Actions 查看 **Deploy NSS to GitHub Pages**；全部成功後，在 Settings → Pages 開啟網站網址並確認 HTTPS。也可在 Actions 對 `main` 手動 Run workflow；其他分支不會執行部署工作。
+
+Pages 只發布上傳的 `dist/pages` 產物，不使用整個 Repository 根目錄作為發布來源。安全檢查不取代 GitHub Repository 本身的個資／秘密檢查；真實班表仍應留在受忽略的本機 `test-data/`。

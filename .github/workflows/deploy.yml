@@ -1,0 +1,56 @@
+name: Deploy NSS to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Build can read code; only the deployment job receives publishing permissions.
+permissions:
+  contents: read
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: read
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Test publication safety
+        run: python3 -B tests/pages.test.py
+      - name: Prepare website files only
+        run: python3 -B scripts/build-pages.py --output dist/pages
+      - name: Check final artifact before upload
+        run: python3 -B scripts/build-pages.py --check-only dist/pages
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Upload checked Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist/pages
+          retention-days: 1
+
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
