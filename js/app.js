@@ -31,6 +31,7 @@
     let dragDepth = 0;
     let generation = 0;
     let result = null;
+    let guidanceRevision = 0;
     const resultPanel = root.querySelector('#parse-result');
     const resultSummary = root.querySelector('#result-summary');
     const issues = root.querySelector('#result-issues');
@@ -41,9 +42,38 @@
     const cycleEnd = root.querySelector('#cycle-end');
     const cycleFields = root.querySelector('#cycle-fields');
     const confirmCycle = root.querySelector('#confirm-cycle');
+    const progressSteps = Array.from(root.querySelectorAll('#import-progress li'));
+    const issueDetails = root.querySelector('#issue-details');
+    function setProgress(current, complete = false, currentLabel = '目前階段') {
+      progressSteps.forEach((step,index) => {
+        const state = complete || index < current ? 'completed' : index === current ? 'current' : 'pending';
+        step.dataset.state = state;
+        step.querySelector('.progress-number').textContent = state === 'completed' ? '✓' : String(index+1);
+        step.querySelector('.progress-state').textContent = state === 'completed' ? '已完成' : state === 'current' ? currentLabel : '尚未完成';
+        if (state === 'current') step.setAttribute('aria-current','step');
+        else step.removeAttribute('aria-current');
+      });
+    }
+    function placeStatus(target) {
+      if (status.parentElement !== target) target.append(status);
+    }
+    function guideTo(target) {
+      const revision = ++guidanceRevision, token = generation;
+      // Let the result card and the button settle before scrolling. Fast Excel
+      // parsing can otherwise race the browser's scroll anchoring after a click.
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+        if (token !== generation || revision !== guidanceRevision || resultPanel.hidden) return;
+        // Focus the section, not the date input: do not open a mobile keyboard.
+        target.focus({preventScroll:true});
+        const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        target.scrollIntoView({behavior:reducedMotion ? 'auto' : 'smooth',block:'start'});
+      }));
+    }
+    setProgress(0);
     function clearResult() {
       generation++;
       result = null;
+      placeStatus(root.querySelector('#import-status-slot'));
       dateSuggestions.replaceChildren();
       cycleStart.value = ''; cycleEnd.textContent = ''; cycleFields.disabled = true;
       resultPanel.hidden = true;
@@ -51,9 +81,10 @@
       issues.replaceChildren();
       sheetChoice.hidden = true;
       sheetSelect.replaceChildren();
+      issueDetails.open = false;
       root.querySelector('#file-state').textContent = '已選擇 · 尚未解析';
     }
-    function showResult(model) {
+    function showResult(model, {guide = false} = {}) {
       model = Services.importConfirmation.initialize(model);
       result = model;
       resultSummary.replaceChildren(); issues.replaceChildren();
@@ -77,16 +108,18 @@
         resultSummary.append(dt, dd);
       }
       const state = model.validation.basicValidationPassed ? '基礎資料驗證通過' : model.employees.length && model.scheduleDates.length ? '部分資料解析成功／存在待確認問題' : '未取得可靠班表資料';
-      root.querySelector('#result-state').textContent = `檔案已讀取 · ${state} · ${model.cycleConfirmed ? '正式四週期已確認' : '尚未確認正式四週期'}${model.validation.readyForSearch ? ' · 匯入確認完成' : ''}`;
+      root.querySelector('#result-state').textContent = `檔案已讀取 · ${state} · ${model.cycleConfirmed ? '正式四週期已確認' : '尚未確認正式四週期'}${model.validation.readyForSearch ? ' · 匯入完成' : ''}`;
       for (const item of [...model.errors, ...model.warnings]) {
         const li = root.createElement('li');
         const place = item.source?.page ? `第 ${item.source.page} 頁${item.source.y !== undefined ? `，y=${Math.round(item.source.y)}` : ''}` : item.source?.sheet ? `工作表 ${item.source.sheet} ${item.source.cell || ''}` : '';
         li.textContent = `${item.scope === 'global' ? '全域' : `個別員工 ${item.employeeId || ''}`}：${item.message}${place ? `（${place}）` : ''}`;
         issues.append(li);
       }
-      let message = model.validation.basicValidationPassed ? '基礎驗證通過，尚未確認正式四週期，不能進入換班搜尋。' : '已讀取檔案，解析或驗證有問題；請查看下方結果。';
-      if (model.validation.readyForSearch) message = '匯入確認完成。日期與班別驗證通過；換班搜尋尚未開放。';
-      else if (model.validation.basicValidationPassed) message = '日期與班別驗證通過，請確認下方正式四週期。';
+      const unresolvedDates = model.importConfirmation.dateSuggestions.some(s => !Services.importConfirmation.resolved(s));
+      const blocked = !model.validation.basicValidationPassed || model.errors.length > 0 || unresolvedDates;
+      let message = !blocked ? '基礎驗證通過，尚未確認正式四週期，不能進入換班搜尋。' : '已讀取檔案，解析或驗證有問題；請查看下方結果。';
+      if (model.validation.readyForSearch) message = '匯入完成。換班搜尋尚未開放。';
+      else if (!blocked) message = '班表解析成功！還差最後一步，請確認正式四週期。';
       if (model.pdfDiagnostics && !model.validation.basicValidationPassed) {
         const stage = model.pdfDiagnostics.stage;
         if (stage === 'text-encoding') message = 'PDF 文字擷取成功，但文字編碼異常；請查看下方結果。';
@@ -95,8 +128,20 @@
         else if (stage === 'data-validation') message = 'PDF 文字擷取與表格欄列辨識完成，但資料驗證未通過；請查看下方待確認問題。';
         message += `（${Services.pdfParser.diagnosticSummary(model.pdfDiagnostics)}）`;
       }
-      announce(message, !model.validation.basicValidationPassed);
-      root.querySelector('#file-state').textContent = model.validation.readyForSearch ? '匯入確認完成' : '已讀取 · 等待確認';
+      const statusTarget = root.querySelector(blocked ? '#import-status-slot' : '#cycle-status-slot');
+      placeStatus(statusTarget);
+      announce(message, blocked);
+      root.querySelector('#file-state').textContent = model.validation.readyForSearch ? '匯入完成' : '已讀取 · 等待確認';
+      setProgress(model.validation.readyForSearch ? 3 : blocked ? 1 : 2,model.validation.readyForSearch,blocked ? '需要處理' : '目前階段');
+      if (guide) {
+        if (blocked) {
+          issueDetails.open = true;
+          guideTo(root.querySelector(unresolvedDates ? '#date-review' : '#issue-details'));
+        } else if (!model.cycleConfirmed) {
+          issueDetails.open = false;
+          guideTo(root.querySelector('#cycle-confirmation'));
+        }
+      }
     }
 
     function renderConfirmation(model) {
@@ -118,11 +163,11 @@
           const actions = root.createElement('div'); actions.className = 'confirmation-actions';
           const accept = root.createElement('button'); accept.type = 'button'; accept.className = 'confirm-button';
           accept.textContent = '確認修正全部相同位置';
-          accept.addEventListener('click', () => showResult(Services.importConfirmation.decideDate(result, suggestion.id, true)));
+          accept.addEventListener('click', () => showResult(Services.importConfirmation.decideDate(result, suggestion.id, true), {guide:true}));
           actions.append(accept);
           if (suggestion.status === 'pending') {
             const reject = root.createElement('button'); reject.type = 'button'; reject.className = 'reject-button'; reject.textContent = '保留原日期';
-            reject.addEventListener('click', () => showResult(Services.importConfirmation.decideDate(result, suggestion.id, false)));
+            reject.addEventListener('click', () => showResult(Services.importConfirmation.decideDate(result, suggestion.id, false), {guide:true}));
             actions.append(reject);
           }
           box.append(actions);
@@ -147,6 +192,7 @@
     }
     cycleStart.addEventListener('input', () => {
       if (!result) return;
+      guidanceRevision++;
       const value = cycleStart.value;
       result = Services.importConfirmation.setCycleStart(result, value);
       showResult(result);
@@ -155,13 +201,15 @@
     });
     confirmCycle.addEventListener('click', () => {
       if (!result) return;
+      guidanceRevision++;
       result = Services.importConfirmation.setCycleStart(result, cycleStart.value);
       Services.importConfirmation.confirmCycle(result);
       showResult(result);
     });
 
     function announce(message, error = false) {
-      status.textContent = message;
+      if (!result) placeStatus(root.querySelector('#import-status-slot'));
+      if (status.textContent !== message) status.textContent = message;
       status.classList.toggle('error', error);
     }
 
@@ -173,6 +221,7 @@
       fileName.textContent = '';
       fileFormat.textContent = '';
       parseButton.disabled = true;
+      setProgress(0);
     }
 
     function selectFiles(files) {
@@ -188,6 +237,7 @@
         return;
       }
       selectedFile = file;
+      setProgress(1);
       fileName.textContent = file.name;
       fileFormat.textContent = format;
       selected.hidden = false;
@@ -236,6 +286,8 @@
       resultSummary.replaceChildren();
       issues.replaceChildren();
       parseButton.disabled = true;
+      setProgress(1,false,'解析中');
+      issueDetails.open = false;
       announce('正在裝置上讀取與驗證班表…');
       try {
         if (file.size > 25 * 1024 * 1024) throw new Error('檔案超過 25 MB，請選擇較小的班表檔案。');
@@ -248,11 +300,13 @@
             const option = root.createElement('option'); option.value = name; option.textContent = name; sheetSelect.append(option);
           }
           sheetChoice.hidden = false;
+          setProgress(1,false,'選擇工作表');
           announce('找到多張可能的班表，請選擇工作表後再次開始解析。');
-        } else showResult(model);
+        } else showResult(model, {guide:true});
       } catch (error) {
         if (token !== generation) return;
         result = null;
+        setProgress(1,false,'解析失敗');
         announce(error.message || '無法解析班表，請確認檔案格式。', true);
         root.querySelector('#file-state').textContent = '讀取／解析失敗';
       } finally {
@@ -263,6 +317,7 @@
       generation++; result = null; resultPanel.hidden = true;
       resultSummary.replaceChildren(); issues.replaceChildren();
       parseButton.disabled = !selectedFile;
+      setProgress(1);
       announce('已切換工作表，請重新開始解析。');
     });
   }

@@ -32,6 +32,15 @@ test('real browser local parsing, result states, selection reset, no outbound re
   page.on('pageerror',e=>pageErrors.push(e.message));
   await page.goto(`${origin}/index.html`);
   assert.equal(await page.locator('#parse-button').isDisabled(),true);
+  async function progress() {return page.locator('#import-progress li').evaluateAll(els=>els.map(e=>e.dataset.state));}
+  assert.deepEqual(await progress(),['current','pending','pending','pending']);
+  await page.evaluate(()=>{
+    window.scrollGuides=[];
+    const original=Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView=function(options){window.scrollGuides.push({id:this.id,behavior:options?.behavior});return original.call(this,options);};
+  });
+  async function lastGuide() {return page.evaluate(()=>window.scrollGuides.at(-1));}
+  async function guidedTo(id) {await page.waitForFunction(id=>document.activeElement.id===id&&window.scrollGuides.at(-1)?.id===id,id);}
   async function choose(name,mimeType,buffer) {await page.locator('#schedule-file').setInputFiles({name,mimeType,buffer});}
   async function parse() {await page.locator('#parse-button').click();await page.waitForFunction(()=>!document.querySelector('#parse-button').disabled);}
   for (const [name,mimeType,buffer] of [
@@ -41,7 +50,19 @@ test('real browser local parsing, result states, selection reset, no outbound re
    ['synthetic.xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',spreadsheet()],
    ['synthetic.xls','application/vnd.ms-excel',spreadsheet(false,'xls')],
   ]) {
-   await choose(name,mimeType,buffer);await parse();
+   await choose(name,mimeType,buffer);
+   assert.deepEqual(await progress(),['completed','current','pending','pending']);
+   await parse();
+   assert.deepEqual(await progress(),['completed','completed','current','pending']);
+   assert.equal(await page.locator('#status').textContent(),'班表解析成功！還差最後一步，請確認正式四週期。');
+   await guidedTo('cycle-confirmation');
+   assert.deepEqual(await lastGuide(),{id:'cycle-confirmation',behavior:'smooth'});
+   assert.equal(await page.locator('#cycle-status-slot #status').count(),1);
+   assert.equal(await page.locator('#status').count(),1);
+   await page.waitForFunction(()=>{const r=document.querySelector('#confirm-cycle').getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight;},undefined,{timeout:5000}).catch(async()=>{
+    const rect=await page.evaluate(()=>({scrollY,active:document.activeElement.id,top:document.querySelector('#confirm-cycle').getBoundingClientRect().top,bottom:document.querySelector('#confirm-cycle').getBoundingClientRect().bottom,viewport:innerHeight}));
+    throw new Error(`Synthetic fixture ${name}: confirmation button outside viewport ${JSON.stringify(rect)}`);
+   });
    assert.equal(await page.locator('#parse-result').isVisible(),true,`result: ${name}, ${await page.locator('#status').textContent()}`);
    assert.match(await page.locator('#result-state').textContent(),/基礎資料驗證通過/);
    assert.match(await page.locator('#result-state').textContent(),/尚未確認正式四週期/);
@@ -130,17 +151,21 @@ test('real browser local parsing, result states, selection reset, no outbound re
     assert.equal(await page.locator('#cycle-end').textContent(),'2026-12-06');
     assert.match(await page.locator('#result-state').textContent(),/尚未確認/);
     assert.doesNotMatch(await page.locator('#result-issues').textContent(),/日期順序異常|日期有缺漏/);
+    const guidesBeforeEdit=await page.evaluate(()=>window.scrollGuides.length);
     await page.locator('#cycle-start').fill('2026-11-10');
     assert.equal(await page.locator('#confirm-cycle').isDisabled(),true);
     assert.match(await page.locator('#cycle-state').textContent(),/超出班表/);
     await page.locator('#cycle-start').fill('2026-11-04');
     assert.equal(await page.locator('#cycle-end').textContent(),'2026-12-01');
     await page.locator('#confirm-cycle').click();
-    assert.match(await page.locator('#result-state').textContent(),/匯入確認完成/);
+    assert.match(await page.locator('#result-state').textContent(),/匯入完成/);
+    assert.deepEqual(await progress(),['completed','completed','completed','completed']);
     await page.locator('#cycle-start').fill('2026-11-09');
     assert.match(await page.locator('#result-state').textContent(),/尚未確認/);
+    assert.deepEqual(await progress(),['completed','completed','current','pending']);
+    assert.equal(await page.evaluate(()=>window.scrollGuides.length),guidesBeforeEdit);
     await page.locator('#confirm-cycle').click();
-    assert.match(await page.locator('#status').textContent(),/匯入確認完成/);
+    assert.match(await page.locator('#status').textContent(),/匯入完成/);
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
     if(fallback) await page.evaluate(()=>{
       Object.defineProperty(ReadableStream.prototype,Symbol.asyncIterator,window.iteratorDescriptor);delete window.iteratorDescriptor;
@@ -152,10 +177,17 @@ test('real browser local parsing, result states, selection reset, no outbound re
   assert.equal(await page.locator('#date-suggestions button').count(),0);
   assert.match(await page.locator('#date-review-state').textContent(),/已自動修正/);
   assert.match(await page.locator('#result-issues').textContent(),/OX/);
+  assert.doesNotMatch(await page.locator('#status').textContent(),/班表解析成功！/);
+  assert.deepEqual(await progress(),['completed','current','pending','pending']);
+  assert.equal(await page.locator('#issue-details').getAttribute('open'),'');
+  await guidedTo('issue-details');
+  assert.equal((await lastGuide()).id,'issue-details');
   assert.equal(await page.locator('#confirm-cycle').isDisabled(),true);
   const conflictingRows=reviewRows.map(r=>r.slice());conflictingRows[1][conflictingRows[1].length-2]='2026-11-11';
   await choose('conflicting-dates.pdf','application/pdf',pdf([conflictingRows]));await parse();
   assert.equal(await page.locator('#date-suggestions .date-suggestion').count(),1);
+  await guidedTo('date-review');
+  assert.equal((await lastGuide()).id,'date-review');
   assert.equal(await page.locator('#cycle-start').isDisabled(),true);
   await page.locator('#date-suggestions .reject-button').click();
   assert.match(await page.locator('#date-suggestions').textContent(),/保留原值/);
@@ -177,9 +209,11 @@ test('real browser local parsing, result states, selection reset, no outbound re
   assert.equal(await page.locator('#result-issues').textContent(),'');
   await parse();assert.equal(await page.locator('#sheet-choice').isVisible(),true);
   await page.locator('#sheet-select').selectOption('Synthetic B');await parse();assert.match(await page.locator('#result-state').textContent(),/基礎資料驗證通過/);
-  await page.locator('#remove-file').click();assert.equal(await page.locator('#parse-result').isVisible(),false);assert.equal(await page.locator('#parse-button').isDisabled(),true);
+  await page.locator('#remove-file').click();assert.deepEqual(await progress(),['current','pending','pending','pending']);assert.equal(await page.locator('#parse-result').isVisible(),false);assert.equal(await page.locator('#parse-button').isDisabled(),true);
   await choose('scan.pdf','application/pdf',pdf([[]]));await parse();assert.match(await page.locator('#result-issues').textContent(),/OCR/);
   await choose('bad.pdf','application/pdf',Buffer.from('not a PDF'));await parse();assert.match(await page.locator('#status').textContent(),/PDF 無法讀取/);
+  assert.deepEqual(await progress(),['completed','current','pending','pending']);
+  assert.match(await page.locator('#import-progress li').nth(1).textContent(),/解析失敗/);
   // Delay file reading and select another file while the previous parse is running.
   await choose('stale.xlsx','application/octet-stream',spreadsheet());
   await page.evaluate(()=>{
@@ -190,14 +224,39 @@ test('real browser local parsing, result states, selection reset, no outbound re
     };
   });
   await page.locator('#parse-button').click();
+  assert.match(await page.locator('#import-progress li').nth(1).textContent(),/解析中/);
   await choose('replacement.xlsx','application/octet-stream',spreadsheet());
   await page.evaluate(async()=>{await window.releaseRead();delete window.releaseRead;});
   await page.waitForTimeout(100);
   assert.equal(await page.locator('#parse-result').isVisible(),false);
   assert.match(await page.locator('#status').textContent(),/尚未解析/);
+  // A queued scroll must not pull the user back to the previous file's result.
+  await page.evaluate(()=>{
+    window.savedRAF=window.requestAnimationFrame;window.queuedGuides=[];
+    window.requestAnimationFrame=callback=>{window.queuedGuides.push(callback);return window.queuedGuides.length;};
+  });
+  await choose('queued-guide.xlsx','application/octet-stream',spreadsheet());await parse();
+  const guideCount=await page.evaluate(()=>window.scrollGuides.length);
+  await choose('new-selection.xlsx','application/octet-stream',spreadsheet());
+  await page.evaluate(()=>{
+    window.requestAnimationFrame=window.savedRAF;delete window.savedRAF;
+    for(const callback of window.queuedGuides)callback();delete window.queuedGuides;
+  });
+  await page.waitForTimeout(100);
+  assert.equal(await page.evaluate(()=>window.scrollGuides.length),guideCount);
+  assert.equal(await page.locator('#parse-result').isVisible(),false);
+  assert.deepEqual(await progress(),['completed','current','pending','pending']);
+  await page.emulateMedia({reducedMotion:'reduce'});
   await choose('last.xlsx','application/octet-stream',spreadsheet());await parse();
+  await guidedTo('cycle-confirmation');
+  assert.deepEqual(await lastGuide(),{id:'cycle-confirmation',behavior:'auto'});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   await page.screenshot({path:path.join(project,'test-data/mobile-result.png'),fullPage:true});
+  await page.setViewportSize({width:320,height:568});
+  await choose('small-screen.xlsx','application/octet-stream',spreadsheet());await parse();
+  await guidedTo('cycle-confirmation');
+  assert.equal(await page.evaluate(()=>{const r=document.querySelector('#confirm-cycle').getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight;}),true);
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   await page.setViewportSize({width:1280,height:900});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   await page.screenshot({path:path.join(project,'test-data/desktop-result.png'),fullPage:true});
   assert.deepEqual(pageErrors,[]);
