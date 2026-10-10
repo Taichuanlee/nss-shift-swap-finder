@@ -1,0 +1,17 @@
+# macOS / editor files
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Local schedule documents: never commit real staff schedules
+*.[pP][dD][fF]
+*.[xX][lL][sS]
+*.[xX][lL][sS][xX]
+
+# Future dependencies and build output
+node_modules/
+dist/
+.env
+.env.*
