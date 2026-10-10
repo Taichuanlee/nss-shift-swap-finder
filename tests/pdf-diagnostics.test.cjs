@@ -103,3 +103,27 @@ test('recognized tables with invalid data report validation, not recognition fai
  assert.equal(model.validation.basicValidationPassed,false);
  assert.equal(model.validation.readyForSearch,false);
 });
+test('exact confirmed non-daily headers preserve raw values and sources outside daily shifts',()=>{
+ const s=setup(),{metadataGrid,dates}=require('./fixtures.cjs');
+ const original=s.parser.positionedTables([{pageNumber:1,items:items(grid(dates(33)))}]);
+ const m=s.parser.positionedTables([1,2].map(pageNumber=>({pageNumber,items:items(metadataGrid(dates(33)))})));
+ assert.equal(m.employees.length,2);assert.equal(m.scheduleDates.length,33);
+ assert.equal(JSON.stringify(m.employees.map(e=>e.shifts)),JSON.stringify(original.employees.map(e=>e.shifts)));
+ assert.equal(m.pdfNonDailyColumns.length,6);assert.equal(m.pdfUnresolvedColumns.length,0);
+ assert.equal(m.errors.length,0);assert.equal(m.validation.basicValidationPassed,true);
+ for(const c of m.pdfNonDailyColumns){assert.ok(c.rawHeader);assert.ok(c.kind);assert.ok(c.source.page);assert.equal(c.values.length,2);assert.ok(c.values.every(v=>v.rawValue&&v.employeeId.startsWith('EXAMPLE')&&v.source.page===c.source.page));}
+ assert.equal(m.pdfNonDailyColumns.find(c=>c.kind==='qualifiedPosition').values[0].rawValue,'A');
+});
+test('similar or unknown headers remain unresolved, including unrecognized non-shift prefix columns',()=>{
+ const s=setup();
+ for(const label of ['10月預定夜班','11月預定夜班備註','11 月預定夜班','單位備註','toString']) {
+  const rows=grid();rows[1].push(label);rows.slice(2).forEach(r=>r.push('N'));
+  const m=s.parser.positionedTables([{pageNumber:1,items:items(rows)}]);
+  assert.equal(m.pdfNonDailyColumns.length,0);assert.ok(m.errors.some(e=>e.code==='UNMAPPED_COLUMN'));
+  assert.ok(m.pdfUnresolvedColumns.some(c=>c.rawHeader===label));
+ }
+ const raw=items(grid());raw.push({str:'未確認欄',width:14,height:8,transform:[1,0,0,1,0,726]},
+  {str:'資格甲',width:14,height:8,transform:[1,0,0,1,0,702]},{str:'資格乙',width:14,height:8,transform:[1,0,0,1,0,678]});
+ const m=s.parser.positionedTables([{pageNumber:1,items:raw}]);
+ assert.ok(m.errors.some(e=>e.code==='UNMAPPED_COLUMN'));assert.ok(m.pdfUnresolvedColumns.some(c=>c.rawHeader==='未確認欄'));
+});

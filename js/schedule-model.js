@@ -25,6 +25,29 @@
     if (leave.has(code) || extraLeaveCodes.includes(code)) return 'leave';
     return 'unknown';
   }
+  function normalizeShift(raw) {
+    const value = text(raw);
+    if (/^O\s+N$/.test(value)) return 'ON';
+    // Consume the whole string as confirmed tokens, with optional whitespace.
+    // A partial match must never discard an unknown character or annotation.
+    const parts = [], tokens = /\s+|-8|休|[AEN]/gy;
+    let cursor = 0;
+    while (cursor < value.length) {
+      tokens.lastIndex = cursor;
+      const match = tokens.exec(value);
+      if (!match) return value;
+      cursor = tokens.lastIndex;
+      if (!/^\s+$/.test(match[0])) parts.push(match[0]);
+    }
+    // Only one confirmed work code plus at most one of each annotation.
+    // Unknown text and repeated annotations stay unknown.
+    const codes = parts.filter(p=>p !== '休' && p !== '-8');
+    if (codes.length === 1 && work.has(codes[0]) &&
+        parts.filter(p=>p === '休').length <= 1 && parts.filter(p=>p === '-8').length <= 1) {
+      return codes[0];
+    }
+    return value;
+  }
   function create(sourceType) {
     return {sourceType, scheduleStartDate: null, scheduleEndDate: null, scheduleDates: [],
       cycleStartDate: null, cycleEndDate: null, cycleSource: null, cycleConfirmed: false,
@@ -119,7 +142,8 @@
         const id = rawId || `unresolved-${model.employees.length + 1}`;
         let employee = employeeMap.get(id);
         if (!employee) {
-          employee = {id, name, shifts: Object.create(null), shiftSources: Object.create(null), identityResolved: !!rawId && !!name, validation: {complete: false, eligible: false}};
+          employee = {id, name, shifts: Object.create(null), shiftSources: Object.create(null),
+            shiftDetails: Object.create(null), identityResolved: !!rawId && !!name, validation: {complete: false, eligible: false}};
           employeeMap.set(id, employee);
           model.employees.push(employee);
         } else {
@@ -133,15 +157,18 @@
         for (const column of columns) {
           if (!column.date) continue;
           const cell = row[column.index];
-          const raw = text(cell?.value);
+          const raw = String(cell?.value ?? '');
+          const normalized = normalizeShift(raw);
           const source = cell?.source || {...table.source, row: r + 1, column: column.index + 1};
+          // Preserve every source cell, including repeated pages and conflicts.
+          (employee.shiftDetails[column.date] ||= []).push({raw, normalized, source});
           if (Object.hasOwn(employee.shifts, column.date)) {
-            if (employee.shifts[column.date] !== raw) {
+            if (employee.shifts[column.date] !== normalized) {
               issue(model, 'errors', 'local', 'SHIFT_CONFLICT', `同一員工在 ${column.date} 有不同班別；保留先前值並標示衝突。`, source, id);
-              model.errors.at(-1).conflict = {date: column.date, previous: employee.shifts[column.date], incoming: raw, previousSource: employee.shiftSources[column.date]};
+              model.errors.at(-1).conflict = {date: column.date, previous: employee.shifts[column.date], incoming: normalized, incomingRaw:raw, previousSource: employee.shiftSources[column.date]};
             }
           } else {
-            employee.shifts[column.date] = raw;
+            employee.shifts[column.date] = normalized;
             employee.shiftSources[column.date] = source;
           }
         }
@@ -154,6 +181,6 @@
     model.scheduleEndDate = model.scheduleDates.at(-1) || null;
     return model;
   }
-  ns.Model = Object.freeze({create, issue, fromTables, headerInfo, dateParts, iso, classify, text, DAY,
+  ns.Model = Object.freeze({create, issue, fromTables, headerInfo, dateParts, iso, classify, normalizeShift, text, DAY,
     shiftCodes: Object.freeze({work: Object.freeze([...work]), leave: Object.freeze([...leave])})});
 })();

@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
 const {chromium} = require('playwright');
-const {pdf,grid,dates} = require('./fixtures.cjs');
+const {pdf,grid,metadataGrid,dates} = require('./fixtures.cjs');
 const XLSX = require('../vendor/sheetjs/xlsx.full.min.js');
 const project = path.resolve(__dirname,'..');
 function spreadsheet(multiple=false,type='xlsx') {
@@ -37,6 +37,7 @@ test('real browser local parsing, result states, selection reset, no outbound re
   for (const [name,mimeType,buffer] of [
    ['synthetic.pdf','application/pdf',pdf([grid()])],
    ['synthetic-multipage.pdf','application/pdf',pdf([grid(),grid()])],
+   ['synthetic-metadata.pdf','application/pdf',pdf([metadataGrid(),metadataGrid()])],
    ['synthetic.xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',spreadsheet()],
    ['synthetic.xls','application/vnd.ms-excel',spreadsheet(false,'xls')],
   ]) {
@@ -71,9 +72,12 @@ test('real browser local parsing, result states, selection reset, no outbound re
       delete normal.pdfDiagnostics.textExtractionMethod;
       delete fallback.pdfDiagnostics.textExtractionMethod;
       return {report:parser.getDiagnostics(),method,identical:JSON.stringify(normal)===JSON.stringify(fallback),
-        blocked:!fallback.validation.readyForSearch,errors:fallback.errors.map(e=>e.code)};
+        blocked:!fallback.validation.readyForSearch,errors:fallback.errors.map(e=>e.code),
+        nonDailyCount:fallback.pdfNonDailyColumns.length,unresolvedCount:fallback.pdfUnresolvedColumns.length,
+        dateCount:fallback.scheduleDates.length,dailyShiftCount:fallback.employees.reduce((n,e)=>n+Object.keys(e.shifts).length,0),
+        annotations:fallback.employees[0].shiftDetails['2026-11-09'][0],on:fallback.employees[0].shifts['2026-11-10']};
     } finally {Object.defineProperty(ReadableStream.prototype,Symbol.asyncIterator,descriptor);}
-  },Array.from(pdf([(()=>{const g=grid(dates(33));g[1][4]='1/16';g[2][2]='OX';return g;})(),grid(dates(33))])));
+  },Array.from(pdf([(()=>{const g=metadataGrid(dates(33));g[1][6]='1/16';g[2][4]='E休 -8';g[2][5]='O N';g[2][7]='OX';return g;})(),metadataGrid(dates(33))])));
   assert.equal(missingIterator.report.streamGetReader,true);
   assert.equal(missingIterator.report.streamAsyncIterator,false);
   assert.equal(missingIterator.report.probe.success,true);
@@ -82,8 +86,15 @@ test('real browser local parsing, result states, selection reset, no outbound re
   assert.equal(missingIterator.method,'streamTextContent.getReader');
   assert.equal(missingIterator.identical,true);
   assert.equal(missingIterator.blocked,true);
+  assert.equal(missingIterator.nonDailyCount,6);
+  assert.equal(missingIterator.unresolvedCount,0);
+  assert.equal(missingIterator.dateCount,34); // Both the anomalous and original dates remain.
+  assert.equal(missingIterator.dailyShiftCount,68);
   assert.ok(missingIterator.errors.includes('DATE_SEQUENCE'));
   assert.ok(missingIterator.errors.includes('UNKNOWN_SHIFT'));
+  assert.equal(missingIterator.annotations.raw,'E休 -8');
+  assert.equal(missingIterator.annotations.normalized,'E');
+  assert.equal(missingIterator.on,'ON');
   await page.evaluate(()=>window.NSSShiftSwapFinder.PdfParser.startDiagnostics());
   const redacted=await page.evaluate(async()=>{
     const parser=window.NSSShiftSwapFinder.PdfParser;

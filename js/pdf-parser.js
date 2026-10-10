@@ -2,6 +2,16 @@
   'use strict';
   const ns = window.NSSShiftSwapFinder;
   const invalidEncoding = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFD]/;
+  // Exact, user-confirmed hospital headers; never infer from cell codes.
+  const nonDailyHeaders = Object.freeze({
+    '11月預定夜班': 'novemberPlannedShift',
+    '12月預定夜班': 'decemberPlannedShift',
+    '單位': 'qualifiedPosition',
+  });
+  const nonDailyKind = value => {
+    const header=String(value ?? '').trim();
+    return Object.hasOwn(nonDailyHeaders,header)?nonDailyHeaders[header]:null;
+  };
   const stages = Object.freeze({
     'library-load': 'PDF 函式庫載入', 'file-read': '本機檔案讀取',
     'document-load': 'PDF 載入（含 Worker 初始化）', 'page-load': 'PDF 頁面載入',
@@ -142,7 +152,7 @@
   function stopDiagnostics() {debugReport = null;}
   const heightForRow = items => Math.max(4,...items.map(i=>i.height || 0));
   function positionedTables(pages) {
-    const tables = [], structureIssues = [], metadata = [];
+    const tables = [], structureIssues = [];
     for (const {pageNumber, items} of pages) {
       const usable = items.filter(i => typeof i.str === 'string' && i.str.trim());
       if (!usable.length) {
@@ -201,16 +211,6 @@
             headerCells=mergedCells;header=mergedHeader;
             sorted.splice(0,sorted.length,...merged);
             band.forEach(l=>consumed.add(l));
-            // Prefix columns with no shift/date values are metadata, not hidden dates.
-            for(let index=0;index<header.name;index++) {
-              if(index===header.id||header.dateIndices.includes(index))continue;
-              const left=sorted[index].transform[4],right=left+sorted[index].width;
-              const values=usable.filter(i=>i.transform[5]<line.y-height*1.2&&i.transform[4]>=left-4&&i.transform[4]<=right+4);
-              if(values.length&&values.every(i=>ns.Model.classify(i.str)==='unknown'&&!ns.Model.dateParts(i.str))) {
-                metadata.push({rawHeader:headerCells[index].value,source:headerCells[index].source});
-                headerCells[index].value='備註';
-              }
-            }
           }
           anchors = sorted.map(i=>({x:i.transform[4]+(i.width || 0)/2, left:i.transform[4], right:i.transform[4]+(i.width || 0)}));
           if (anchors.some((a,i)=>i && a.x-anchors[i-1].x < 8)) {
@@ -250,20 +250,36 @@
       }
       if (!table) structureIssues.push({code:'NO_POSITIONED_HEADER',message:'無法依座標辨識姓名、員工編號與日期欄；不支援此頁表格結構。',source:{page:pageNumber}});
     }
-    const model = ns.Model.fromTables(tables,'pdf');
+    const nonDailyColumns = tables.flatMap(table=>{
+      const header=ns.Model.headerInfo(table.rows[1]);
+      if(!header)return [];
+      return table.rows[1].flatMap((cell,index)=>{
+        const kind=nonDailyKind(cell.value);
+        if(!kind)return [];
+        return [{kind,rawHeader:cell.value,source:cell.source,
+          values:table.rows.slice(2).filter(r=>r[header.id]?.value&&r[header.name]?.value)
+            .map(r=>({employeeId:r[header.id].value,rawValue:r[index]?.value||'',source:r[index]?.source}))}];
+      });
+    });
+    // Adapt only the shared adapter's header classification. Original tables and
+    // non-daily values stay intact in memory and never enter employee.shifts.
+    const dailyTables=tables.map(table=>({...table,rows:table.rows.map((row,index)=>
+      index===1?row.map(cell=>nonDailyKind(cell.value)?{...cell,value:'備註'}:cell):row)}));
+    const model = ns.Model.fromTables(dailyTables,'pdf');
     for (const error of structureIssues) ns.Model.issue(model,'errors','global',error.code,error.message,error.source);
     // Recognition describes geometry and identity mapping; date/code validation
     // remains independent and retains all existing search restrictions.
     model.pdfTableRecognized = tables.length === pages.length && tables.length > 0 &&
       structureIssues.length === 0 && model.employees.length > 0 && model.scheduleDates.length > 0 &&
       !model.errors.some(e => e.code === 'UNIDENTIFIED_ROW');
-    model.pdfHeaderMetadata = metadata;
+    model.pdfNonDailyColumns = nonDailyColumns;
+    model.pdfHeaderMetadata = nonDailyColumns.map(({rawHeader,source})=>({rawHeader,source}));
     // Preserve every unmapped column and its per-employee values in memory.
     model.pdfUnresolvedColumns = tables.flatMap(table=>{
       const header=ns.Model.headerInfo(table.rows[1]);
       if(!header)return [];
       return table.rows[1].flatMap((cell,index)=>{
-        if(index===header.name||index===header.id||header.dateIndices.includes(index)||cell.value==='備註')return [];
+        if(index===header.name||index===header.id||header.dateIndices.includes(index)||cell.value==='備註'||nonDailyKind(cell.value))return [];
         return [{rawHeader:cell.value,source:cell.source,values:table.rows.slice(2).filter(r=>r[header.id]?.value&&r[header.name]?.value).map(r=>({employeeId:r[header.id].value,rawShift:r[index]?.value||'',source:r[index]?.source}))}];
       });
     });

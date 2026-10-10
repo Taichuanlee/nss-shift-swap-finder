@@ -72,6 +72,50 @@ test('unknown O code and blanks are local, healthy employees retained',()=>{
  assert.equal(m.employees[0].shifts[dates()[1]],'OX');assert.equal(ns.Model.classify('OX'),'unknown');assert.equal(ns.Model.classify('OF'),'leave');assert.equal(ns.Model.classify(''),'blank');assert.equal(m.validation.globalStructureValid,true);assert.equal(m.employees[0].validation.complete,false);assert.equal(m.employees[1].validation.complete,true);
  ns.Validator.validate(m,{extraLeaveCodes:['OX']});assert.ok(!m.errors.some(i=>i.code==='UNKNOWN_SHIFT'));assert.ok(m.errors.some(i=>i.code==='BLANK_SHIFT'));
 });
+test('eight confirmed annotations normalize in PDF and Excel while preserving every raw cell',()=>{
+ const inputs=['A 休','E 休','N 休','O N','E 休 -8','E -8 休','N 休 -8','N -8 休'];
+ const expected=['A','E','N','ON','E','E','N','N'];
+ const rows=grid();inputs.forEach((raw,i)=>rows[2][i+2]=raw);
+ for(const m of [parseGrid(rows),ns.PdfParser.positionedTables([pdfRows(rows)])]) {
+  inputs.forEach((raw,i)=>{const date=dates()[i],e=m.employees[0];assert.equal(e.shifts[date],expected[i]);assert.equal(e.shiftDetails[date][0].raw,raw);assert.equal(e.shiftDetails[date][0].normalized,expected[i]);assert.ok(e.shiftDetails[date][0].source);assert.equal(ns.Model.classify(e.shifts[date]),expected[i]==='ON'?'leave':'work');});
+  assert.ok(!m.errors.some(e=>e.code==='UNKNOWN_SHIFT'));assert.equal(m.validation.shiftsComplete,true);assert.equal(m.validation.readyForSearch,false);
+ }
+});
+test('annotation ordering is explicit; unknown text and existing leave codes remain unchanged',()=>{
+ for(const raw of ['休 E','-8 E 休','休 -8 E','E -8','-8 E',' E  休\t-8 '])assert.equal(ns.Model.normalizeShift(raw),'E');
+ for(const raw of ['休','-8','O 休','ON 休','E 休假','E 休 -9','N -8 -8','O N X','N O','休 O N','OF -8','e 休','A特','E病','AN休','A-80','A- 8休']) {
+  assert.equal(ns.Model.normalizeShift(raw),raw);assert.equal(ns.Model.classify(ns.Model.normalizeShift(raw)),'unknown');
+ }
+ for(const raw of ns.Model.shiftCodes.leave){assert.equal(ns.Model.normalizeShift(raw),raw);assert.equal(ns.Model.classify(raw),'leave');}
+ assert.equal(ns.Model.classify(ns.Model.normalizeShift('')),'blank');
+ const rows=grid();rows[2][2]=' E  休\t-8 ';const m=parseGrid(rows);assert.equal(m.employees[0].shiftDetails[dates()[0]][0].raw,' E  休\t-8 ');
+});
+test('confirmed token combinations work with or without whitespace and retain raw values',()=>{
+ const inputs=['A休 -8','A-8休','E休 -8','N-8休','A -8','E 休','N休'];
+ const expected=['A','A','E','N','A','E','N'];
+ const rows=grid();inputs.forEach((raw,i)=>rows[2][i+2]=raw);
+ for(const model of [parseGrid(rows),ns.PdfParser.positionedTables([pdfRows(rows)])])inputs.forEach((raw,i)=>{
+  const employee=model.employees[0],date=dates()[i];
+  assert.equal(ns.Model.normalizeShift(raw),expected[i]);assert.equal(employee.shifts[date],expected[i]);
+  assert.equal(ns.Model.classify(employee.shifts[date]),'work');
+  assert.equal(employee.shiftDetails[date][0].raw,raw);assert.equal(employee.shiftDetails[date][0].normalized,expected[i]);
+ });
+ for(const code of ['A','E','N'])for(const annotations of ['', '休','-8','休-8','-8休'])for(const join of ['', ' ','\t']) {
+  const raw=[code,...(annotations.match(/-8|休/g)||[])].join(join);
+  assert.equal(ns.Model.normalizeShift(raw),code);assert.equal(ns.Model.classify(ns.Model.normalizeShift(raw)),'work');
+ }
+ assert.equal(ns.Model.normalizeShift('ON'),'ON');assert.equal(ns.Model.classify(ns.Model.normalizeShift('ON')),'leave');
+ const unknown=grid();unknown[2][2]='A特';unknown[2][3]='E病';const m=parseGrid(unknown);
+ assert.equal(m.errors.filter(e=>e.code==='UNKNOWN_SHIFT').length,2);
+ assert.equal(m.employees[0].shiftDetails[dates()[0]][0].raw,'A特');
+});
+test('repeated cells preserve annotations; only different normalized shifts conflict',()=>{
+ const rows=grid();rows[2][2]='E 休';const repeated=[...rows[2]];repeated[2]='E -8 休';rows.push(repeated);
+ const same=parseGrid(rows);assert.ok(!same.errors.some(e=>e.code==='SHIFT_CONFLICT'));assert.equal(same.employees[0].shiftDetails[dates()[0]].length,2);
+ const changed=[...repeated];changed[2]='N 休';rows.push(changed);const conflict=parseGrid(rows);
+ assert.equal(conflict.employees[0].shifts[dates()[0]],'E');assert.equal(conflict.employees[0].shiftDetails[dates()[0]].length,3);
+ assert.equal(conflict.errors.find(e=>e.code==='SHIFT_CONFLICT').conflict.incoming,'N');
+});
 test('employee same-date conflict local; different-name duplicate ID local',()=>{
  const rows=grid();rows.push(['EXAMPLE001','Another fictional name',...dates().map(()=> 'N')]);const m=parseGrid(rows);assert.equal(m.employees.length,2);assert.ok(m.errors.some(i=>i.code==='SHIFT_CONFLICT'));assert.ok(m.errors.some(i=>i.code==='IDENTITY_CONFLICT'));assert.equal(m.employees[1].validation.complete,true);
 });
