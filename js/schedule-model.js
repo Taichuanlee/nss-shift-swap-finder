@@ -3,6 +3,8 @@
   'use strict';
   const ns = window.NSSShiftSwapFinder = window.NSSShiftSwapFinder || {};
   const DAY = 86400000;
+  // Original source tables are retained only in memory for confirmed date rebuilding.
+  const tableContexts = new WeakMap();
   const work = new Set(['A', 'E', 'N']);
   const leave = new Set(['O', 'OF', 'ON', 'OZ', 'O1', 'O6', 'O8']);
   const text = value => String(value ?? '').trim();
@@ -67,11 +69,11 @@
     const dateIndices = row.map((c, i) => dateParts(c.value) ? i : -1).filter(i => i >= 0);
     return name >= 0 && id >= 0 && dateIndices.length >= 2 ? {name, id, dateIndices} : null;
   }
-  function fromTables(tables, sourceType) {
+  function fromTables(tables, sourceType, dateCorrections = []) {
     const model = create(sourceType);
     const employeeMap = new Map();
     let headerCount = 0;
-    for (const table of tables) {
+    for (const [tableIndex, table] of tables.entries()) {
       model.sourceInfo.push({source: table.source, title: table.title || ''});
       let header = null;
       let columns = [];
@@ -90,12 +92,14 @@
           let previous = null;
           columns = h.dateIndices.map(index => {
             const cell = row[index];
-            const p = dateParts(cell.value);
+            const correction = dateCorrections.find(c => c.tableIndex === tableIndex && c.headerRow === r && c.index === index && c.originalRaw === text(cell.value));
+            const p = dateParts(correction?.correctedDate || cell.value);
             if (p.year) year = p.year;
             else if (previous?.month === 12 && p.month === 1 && year) year++;
             const date = year ? iso(year, p.month, p.day) : null;
             previous = p;
-            const column = {index, date, raw: text(cell.value), source: cell.source};
+            const column = {index, date, raw: text(cell.value), source: cell.source, tableIndex, headerRow: r};
+            if (correction) column.correctedDate = date;
             model.dateColumns.push(column);
             if (!date) {
               model.unresolvedDateColumns.push(column);
@@ -179,8 +183,52 @@
     model.scheduleDates = [...new Set(model.dateColumns.map(c => c.date).filter(Boolean))].sort();
     model.scheduleStartDate = model.scheduleDates[0] || null;
     model.scheduleEndDate = model.scheduleDates.at(-1) || null;
+    tableContexts.set(model, {tables, baseErrors: new Set(model.errors), baseWarnings: new Set(model.warnings)});
     return model;
   }
-  ns.Model = Object.freeze({create, issue, fromTables, headerInfo, dateParts, iso, classify, normalizeShift, text, DAY,
+  function rebuildDates(model, dateCorrections) {
+    const context = tableContexts.get(model);
+    if (!context) throw new Error('沒有可追溯的原始日期欄位，無法安全修正日期。');
+    const next = fromTables(context.tables, model.sourceType, dateCorrections);
+    // Preserve format-specific geometry/merge errors; regenerate all table/date errors.
+    for (const [severity, base] of [['errors', context.baseErrors], ['warnings', context.baseWarnings]]) {
+      next[severity].push(...model[severity].filter(i => !i.validationIssue && !base.has(i)));
+    }
+    for (const key of Object.keys(model).filter(k => k.startsWith('pdf'))) {
+      next[key] = key === 'pdfDiagnostics' ? {...model[key]} : model[key];
+    }
+    return next;
+  }
+  function dateCellsPreserved(model) {
+    const context = tableContexts.get(model);
+    if (!context) return false;
+    let count = 0;
+    for (const [tableIndex, table] of context.tables.entries()) {
+      let header = null, columns = [];
+      for (const [r,row] of table.rows.entries()) {
+        const h = headerInfo(row);
+        if (h) {
+          header = h;
+          columns = model.dateColumns.filter(c => c.tableIndex === tableIndex && c.headerRow === r);
+          continue;
+        }
+        if (!header || row.every(c => !text(c.value))) continue;
+        const id = text(row[header.id]?.value), name = text(row[header.name]?.value);
+        if (/^(合計|總計|備註|人數|total)$/i.test(id) || /^(合計|總計|備註|人數|total)$/i.test(name)) continue;
+        if (!id && !name) continue;
+        const employee = model.employees.find(e => e.id === id && e.name === name);
+        if (!employee) return false;
+        for (const col of columns) {
+          const cell = row[col.index], raw = String(cell?.value ?? '');
+          if (!col.date || !(employee.shiftDetails[col.date] || []).some(d =>
+              d.raw === raw && d.normalized === normalizeShift(raw) && (!cell?.source || d.source === cell.source))) return false;
+          if (employee.shifts[col.date] !== normalizeShift(raw)) return false;
+          count++;
+        }
+      }
+    }
+    return count === model.employees.reduce((sum,e) => sum+Object.values(e.shiftDetails).reduce((n,ds) => n+ds.length,0),0);
+  }
+  ns.Model = Object.freeze({create, issue, fromTables, rebuildDates, dateCellsPreserved, headerInfo, dateParts, iso, classify, normalizeShift, text, DAY,
     shiftCodes: Object.freeze({work: Object.freeze([...work]), leave: Object.freeze([...leave])})});
 })();

@@ -110,6 +110,58 @@ test('real browser local parsing, result states, selection reset, no outbound re
   assert.doesNotMatch(JSON.stringify(redacted),/SYNTHETIC_PRIVATE_SENTINEL|privateName|PRIVATE_ID|example.invalid/);
   await page.evaluate(()=>window.NSSShiftSwapFinder.PdfParser.stopDiagnostics());
   assert.equal(await page.evaluate(()=>window.NSSShiftSwapFinder.PdfParser.getDiagnostics()),null);
+  // Exercise automatic date correction and explicit cycle confirmation in both API paths.
+  const reviewRows=metadataGrid(dates(33,Date.UTC(2026,10,4)));
+  reviewRows[1][11]='1/16'; reviewRows[2][5]='E休 -8'; reviewRows[2][6]='O N';
+  for (const fallback of [false,true]) {
+    if(fallback) await page.evaluate(()=>{
+      window.iteratorDescriptor=Object.getOwnPropertyDescriptor(ReadableStream.prototype,Symbol.asyncIterator);
+      delete ReadableStream.prototype[Symbol.asyncIterator];
+    });
+    await choose('date-confirmation.pdf','application/pdf',pdf([reviewRows,reviewRows,reviewRows]));
+    assert.equal(await page.locator('#cycle-start').inputValue(),'');
+    assert.equal(await page.locator('#date-suggestions .date-suggestion').count(),0);
+    await parse();
+    assert.equal(await page.locator('#date-suggestions .date-suggestion').count(),0);
+    assert.match(await page.locator('#date-review-state').textContent(),/已自動修正 1 個日期標題/);
+    assert.equal(await page.locator('#date-suggestions button').count(),0);
+    assert.match(await page.locator('#date-review-state').textContent(),/通過/);
+    assert.equal(await page.locator('#cycle-start').inputValue(),'2026-11-09');
+    assert.equal(await page.locator('#cycle-end').textContent(),'2026-12-06');
+    assert.match(await page.locator('#result-state').textContent(),/尚未確認/);
+    assert.doesNotMatch(await page.locator('#result-issues').textContent(),/日期順序異常|日期有缺漏/);
+    await page.locator('#cycle-start').fill('2026-11-10');
+    assert.equal(await page.locator('#confirm-cycle').isDisabled(),true);
+    assert.match(await page.locator('#cycle-state').textContent(),/超出班表/);
+    await page.locator('#cycle-start').fill('2026-11-04');
+    assert.equal(await page.locator('#cycle-end').textContent(),'2026-12-01');
+    await page.locator('#confirm-cycle').click();
+    assert.match(await page.locator('#result-state').textContent(),/匯入確認完成/);
+    await page.locator('#cycle-start').fill('2026-11-09');
+    assert.match(await page.locator('#result-state').textContent(),/尚未確認/);
+    await page.locator('#confirm-cycle').click();
+    assert.match(await page.locator('#status').textContent(),/匯入確認完成/);
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+    if(fallback) await page.evaluate(()=>{
+      Object.defineProperty(ReadableStream.prototype,Symbol.asyncIterator,window.iteratorDescriptor);delete window.iteratorDescriptor;
+    });
+  }
+  // Validation warnings cannot be bypassed by confirming a known typo.
+  const unknownRows=reviewRows.map(r=>r.slice());unknownRows[2][12]='OX';
+  await choose('unknown-code.pdf','application/pdf',pdf([unknownRows]));await parse();
+  assert.equal(await page.locator('#date-suggestions button').count(),0);
+  assert.match(await page.locator('#date-review-state').textContent(),/已自動修正/);
+  assert.match(await page.locator('#result-issues').textContent(),/OX/);
+  assert.equal(await page.locator('#confirm-cycle').isDisabled(),true);
+  const conflictingRows=reviewRows.map(r=>r.slice());conflictingRows[1][conflictingRows[1].length-2]='2026-11-11';
+  await choose('conflicting-dates.pdf','application/pdf',pdf([conflictingRows]));await parse();
+  assert.equal(await page.locator('#date-suggestions .date-suggestion').count(),1);
+  assert.equal(await page.locator('#cycle-start').isDisabled(),true);
+  await page.locator('#date-suggestions .reject-button').click();
+  assert.match(await page.locator('#date-suggestions').textContent(),/保留原值/);
+  await page.locator('#date-suggestions .confirm-button').click();
+  assert.equal(await page.locator('#confirm-cycle').isDisabled(),true);
+  assert.match(await page.locator('#result-issues').textContent(),/重複日期/);
   const unsupported=grid();unsupported[1][0]='Unsupported ID header';
   await choose('unsupported-table.pdf','application/pdf',pdf([unsupported]));await parse();
   assert.match(await page.locator('#status').textContent(),/文字擷取成功.*表格欄列辨識未通過/);

@@ -12,13 +12,14 @@
   <script src="js/schedule-validator.js" defer></script>
   <script src="js/pdf-parser.js" defer></script>
   <script src="js/excel-parser.js" defer></script>
+  <script src="js/import-confirmation.js" defer></script>
   <script src="js/app.js" defer></script>
 </head>
 <body>
   <main class="page">
     <header class="header">
       <div class="brand-mark" aria-hidden="true">N</div>
-      <span class="version">v0.2A-1</span>
+      <span class="version">v0.2A-2</span>
     </header>
     <section class="intro" aria-labelledby="page-title">
       <p class="eyebrow">讓休假安排，多一個可能</p>
@@ -45,7 +46,7 @@
         <p class="status" id="status" role="status" aria-live="polite" aria-atomic="true"></p>
         <div id="sheet-choice" class="sheet-choice" hidden><label for="sheet-select">選擇要解析的班表工作表</label><select id="sheet-select"></select></div>
         <button class="parse-button" id="parse-button" type="button" disabled>開始解析 <span aria-hidden="true">→</span></button>
-        <p class="phase-note">解析於裝置上執行。正式四週期尚未確認，換班搜尋未開放。</p>
+        <p class="phase-note">解析於裝置上執行。請依序確認日期與正式四週期；換班搜尋尚未開放。</p>
       </section>
       <section class="card guide-card" aria-labelledby="guide-title">
         <p class="eyebrow">HOW IT WORKS</p><h2 id="guide-title">四個步驟，找到換班可能</h2>
@@ -59,10 +60,29 @@
       </section>
     </div>
     <section class="card result-card" id="parse-result" aria-labelledby="result-title" hidden>
-      <h2 id="result-title">解析與基礎驗證結果</h2>
+      <h2 id="result-title">確認匯入班表</h2>
+      <section class="confirmation-step" aria-labelledby="date-review-title">
+        <h3 id="date-review-title">1. 檢查日期</h3>
+        <p id="date-review-state" class="status" role="status"></p>
+        <div id="date-suggestions"></div>
+      </section>
+      <section class="confirmation-step" aria-labelledby="cycle-title">
+        <h3 id="cycle-title">2. 確認正式四週期</h3>
+        <p id="display-range" class="confirmation-help"></p>
+        <fieldset id="cycle-fields" disabled>
+          <div class="cycle-dates">
+            <div><label for="cycle-start">正式四週期開始日期</label><input type="date" id="cycle-start" aria-describedby="cycle-help cycle-state"></div>
+            <div><span id="cycle-end-label">結束日期（自動計算）</span><output id="cycle-end" aria-labelledby="cycle-end-label"></output></div>
+          </div>
+          <p id="cycle-help" class="confirmation-help">共 28 天。週期外日期仍會保留；建議日期需要您確認才會生效。</p>
+          <button id="confirm-cycle" type="button" class="confirm-button">確認這個正式四週期</button>
+        </fieldset>
+        <p id="cycle-state" class="status" role="status"></p>
+      </section>
+      <h3 class="result-step-title">3. 查看匯入結果</h3>
       <p id="result-state" class="status"></p>
       <dl id="result-summary" class="result-summary"></dl>
-      <p class="phase-note">解析完成不代表班表可用。正式四週期未確認；全域問題影響整份班表可信度，個別員工問題保留供後續排除機制使用。</p>
+      <p class="phase-note">只有日期、班別與正式四週期確認全部通過，才完成匯入確認。本階段不提供換班搜尋。</p>
       <details><summary>查看錯誤與警告</summary><ul id="result-issues" class="result-issues"></ul></details>
     </section>
     <aside class="privacy" aria-label="隱私提醒"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z" stroke="currentColor" stroke-width="1.7"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><div><strong>您的班表，留在您的裝置</strong><p>班表資料將於您的裝置上處理，不會上傳至伺服器。</p></div></aside>

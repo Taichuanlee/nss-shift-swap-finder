@@ -15,6 +15,7 @@
     pdfParser: ns.PdfParser,
     excelParser: ns.ExcelParser,
     scheduleValidator: ns.Validator,
+    importConfirmation: ns.ImportConfirmation,
     swapEngine: null,
   });
 
@@ -35,9 +36,16 @@
     const issues = root.querySelector('#result-issues');
     const sheetChoice = root.querySelector('#sheet-choice');
     const sheetSelect = root.querySelector('#sheet-select');
+    const dateSuggestions = root.querySelector('#date-suggestions');
+    const cycleStart = root.querySelector('#cycle-start');
+    const cycleEnd = root.querySelector('#cycle-end');
+    const cycleFields = root.querySelector('#cycle-fields');
+    const confirmCycle = root.querySelector('#confirm-cycle');
     function clearResult() {
       generation++;
       result = null;
+      dateSuggestions.replaceChildren();
+      cycleStart.value = ''; cycleEnd.textContent = ''; cycleFields.disabled = true;
       resultPanel.hidden = true;
       resultSummary.replaceChildren();
       issues.replaceChildren();
@@ -46,7 +54,10 @@
       root.querySelector('#file-state').textContent = '已選擇 · 尚未解析';
     }
     function showResult(model) {
+      model = Services.importConfirmation.initialize(model);
       result = model;
+      resultSummary.replaceChildren(); issues.replaceChildren();
+      renderConfirmation(model);
       resultPanel.hidden = false;
       const complete = model.validation.completeEmployeeCount;
       const stats = [
@@ -56,6 +67,8 @@
         ['資料異常員工人數', model.employees.length - complete],
         ['已辨識日期數量', model.scheduleDates.length],
         ['班表顯示起訖', `${model.scheduleStartDate || '未辨識'} ～ ${model.scheduleEndDate || '未辨識'}`],
+        ['自動修正日期標題', model.importConfirmation.dateSuggestions.filter(s => s.status === 'automatic').length],
+        ['正式四週期', model.cycleStartDate ? `${model.cycleStartDate} ～ ${model.cycleEndDate}（${model.cycleConfirmed ? '已確認' : '尚未確認'}）` : '尚未確認'],
         ['警告數量', model.warnings.length], ['錯誤數量', model.errors.length],
       ];
       for (const [label, value] of stats) {
@@ -64,7 +77,7 @@
         resultSummary.append(dt, dd);
       }
       const state = model.validation.basicValidationPassed ? '基礎資料驗證通過' : model.employees.length && model.scheduleDates.length ? '部分資料解析成功／存在待確認問題' : '未取得可靠班表資料';
-      root.querySelector('#result-state').textContent = `檔案已讀取 · ${state} · 尚未確認正式四週期`;
+      root.querySelector('#result-state').textContent = `檔案已讀取 · ${state} · ${model.cycleConfirmed ? '正式四週期已確認' : '尚未確認正式四週期'}${model.validation.readyForSearch ? ' · 匯入確認完成' : ''}`;
       for (const item of [...model.errors, ...model.warnings]) {
         const li = root.createElement('li');
         const place = item.source?.page ? `第 ${item.source.page} 頁${item.source.y !== undefined ? `，y=${Math.round(item.source.y)}` : ''}` : item.source?.sheet ? `工作表 ${item.source.sheet} ${item.source.cell || ''}` : '';
@@ -72,7 +85,9 @@
         issues.append(li);
       }
       let message = model.validation.basicValidationPassed ? '基礎驗證通過，尚未確認正式四週期，不能進入換班搜尋。' : '已讀取檔案，解析或驗證有問題；請查看下方結果。';
-      if (model.pdfDiagnostics) {
+      if (model.validation.readyForSearch) message = '匯入確認完成。日期與班別驗證通過；換班搜尋尚未開放。';
+      else if (model.validation.basicValidationPassed) message = '日期與班別驗證通過，請確認下方正式四週期。';
+      if (model.pdfDiagnostics && !model.validation.basicValidationPassed) {
         const stage = model.pdfDiagnostics.stage;
         if (stage === 'text-encoding') message = 'PDF 文字擷取成功，但文字編碼異常；請查看下方結果。';
         else if (stage === 'text-extraction') message = 'PDF 已載入，文字擷取流程完成但未取得非空白文字；原因尚待確認。';
@@ -81,8 +96,69 @@
         message += `（${Services.pdfParser.diagnosticSummary(model.pdfDiagnostics)}）`;
       }
       announce(message, !model.validation.basicValidationPassed);
-      root.querySelector('#file-state').textContent = '已讀取 · 四週期未確認';
+      root.querySelector('#file-state').textContent = model.validation.readyForSearch ? '匯入確認完成' : '已讀取 · 等待確認';
     }
+
+    function renderConfirmation(model) {
+      dateSuggestions.replaceChildren();
+      const suggestions = model.importConfirmation.dateSuggestions;
+      const automaticCount = suggestions.filter(s => s.status === 'automatic').length;
+      for (const suggestion of suggestions.filter(s => s.status !== 'automatic')) {
+        const box = root.createElement('div'); box.className = 'date-suggestion';
+        const message = root.createElement('p');
+        const pages = [...new Set(suggestion.occurrences.map(o => o.source?.page).filter(Boolean))];
+        const place = pages.length ? `第 ${pages.join('、')} 頁` : `${suggestion.occurrences.length} 個表頭位置`;
+        const correctedLabel = `${Number(suggestion.correctedDate.slice(5,7))}/${Number(suggestion.correctedDate.slice(8))}`;
+        message.textContent = `${suggestion.originalRaw} → ${correctedLabel}（${place}）。前後日期顯示此處可能誤植。${suggestion.manualReason || ''}`;
+        box.append(message);
+        if (suggestion.status === 'accepted') {
+          message.textContent += '已依您的確認套用，原始日期與修正紀錄仍保留。';
+        } else {
+          if (suggestion.status === 'rejected') message.textContent += '您已選擇保留原值，日期問題尚未解決，不能完成匯入。';
+          const actions = root.createElement('div'); actions.className = 'confirmation-actions';
+          const accept = root.createElement('button'); accept.type = 'button'; accept.className = 'confirm-button';
+          accept.textContent = '確認修正全部相同位置';
+          accept.addEventListener('click', () => showResult(Services.importConfirmation.decideDate(result, suggestion.id, true)));
+          actions.append(accept);
+          if (suggestion.status === 'pending') {
+            const reject = root.createElement('button'); reject.type = 'button'; reject.className = 'reject-button'; reject.textContent = '保留原日期';
+            reject.addEventListener('click', () => showResult(Services.importConfirmation.decideDate(result, suggestion.id, false)));
+            actions.append(reject);
+          }
+          box.append(actions);
+        }
+        dateSuggestions.append(box);
+      }
+      const dateErrors = model.errors.filter(i => i.scope === 'global' && /DATE|COLUMN|TABLE|HEADER|GEOMETRY|PAGE|TEXT|MERGED|UNIDENTIFIED|NO_EMPLOYEES/.test(i.code));
+      root.querySelector('#date-review-state').textContent = dateErrors.length ?
+        (suggestions.some(s => !Services.importConfirmation.resolved(s)) ? '日期需要您確認。請先處理以下建議。' : '無法安全推斷日期或確認欄位對應，請核對原班表及下方錯誤；不能完成匯入。') : `${automaticCount ? `已自動修正 ${automaticCount} 個日期標題。` : ''}日期檢查通過。`;
+      const pending = suggestions.some(s => !Services.importConfirmation.resolved(s));
+      cycleFields.disabled = pending || !model.validation.basicValidationPassed;
+      root.querySelector('#display-range').textContent = `${model.sourceType === 'pdf' ? 'PDF' : 'Excel'} 已辨識顯示範圍：${model.scheduleStartDate || '未辨識'} ～ ${model.scheduleEndDate || '未辨識'}（${model.scheduleDates.length} 天）。${pending ? '日期修正前，此範圍可能有誤。' : ''}`;
+      cycleStart.value = model.cycleSource === 'user' ? (model.cycleStartDate || '') : (model.cycleCandidates[0]?.startDate || '');
+      cycleEnd.textContent = Services.importConfirmation.addDays(cycleStart.value,27) || '請選擇有效開始日期';
+      // A displayed suggestion never sets cycleConfirmed or makes the model ready.
+      const end = cycleEnd.textContent;
+      const covered = Array.from({length:28}, (_,i) => Services.importConfirmation.addDays(cycleStart.value,i)).every(d => model.scheduleDates.includes(d));
+      confirmCycle.disabled = cycleFields.disabled || !covered || model.cycleConfirmed;
+      root.querySelector('#cycle-state').textContent = cycleFields.disabled ? '請先解決日期及班別問題，再確認正式四週期。' : model.cycleConfirmed ?
+        `已確認 ${model.cycleStartDate} ～ ${model.cycleEndDate}，共 28 天。修改開始日期後需要再次確認。` : covered ?
+        `建議 ${cycleStart.value} ～ ${end}，共 28 天。請核對後按下確認。` : '這個四週期超出班表或有缺漏日期，請調整開始日期。';
+    }
+    cycleStart.addEventListener('input', () => {
+      if (!result) return;
+      const value = cycleStart.value;
+      result = Services.importConfirmation.setCycleStart(result, value);
+      showResult(result);
+      // Preserve an empty/invalid user entry instead of resetting to the suggestion.
+      if (!value) { cycleStart.value = ''; cycleEnd.textContent = '請選擇有效開始日期'; confirmCycle.disabled = true; }
+    });
+    confirmCycle.addEventListener('click', () => {
+      if (!result) return;
+      result = Services.importConfirmation.setCycleStart(result, cycleStart.value);
+      Services.importConfirmation.confirmCycle(result);
+      showResult(result);
+    });
 
     function announce(message, error = false) {
       status.textContent = message;
@@ -192,6 +268,6 @@
   }
 
   // Stable namespace for future NSS integration and separately loaded services.
-  Object.assign(ns, {version: '0.2A-1', FileFormat, Services});
+  Object.assign(ns, {version: '0.2A-2', FileFormat, Services});
   createImportController(document);
 })();
