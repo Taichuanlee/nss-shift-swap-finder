@@ -1,56 +1,144 @@
 # NSS Shift Swap Finder
 
-護理師換班搜尋工具 · Phase 1 / v0.1
+護理師換班搜尋工具 · v0.2A-1
 
-獨立的前端工具，未來協助從四週期班表尋找換班對象、分析雙方班表影響。系統不會自動執行換班。
+保留 v0.1 首頁設計，新增瀏覽器本機 PDF／Excel 解析、共用資料模型、基礎驗證與統計。本階段不確認正式四週期、不修正日期、不提供逐格編輯或換班搜尋。
 
-## 在 Mac 上開啟
+## Mac 本機使用
 
-在 Finder 開啟 `/Users/becklee/Documents/GitHub/nss-shift-swap-finder`，雙擊 `index.html`，或以右鍵「打開檔案的應用程式」選擇 Safari／Google Chrome。無需安裝套件、啟動伺服器或建置。
+在 Terminal 執行（需要 Python 3，無須安裝專案套件）：
 
-## 已完成
-
-- 繁體中文首頁，手機優先並支援桌面。
-- 選擇檔案與拖曳匯入；一次接受一個 `.pdf`、`.xlsx` 或 `.xls`。
-- 依副檔名辨識格式（不分大小寫），顯示檔名與格式、移除或重新選擇。
-- 不支援格式與多檔案的錯誤提示。
-- 四步驟流程說明、隱私提醒及「開始解析」預留入口。
-- 鍵盤焦點樣式、狀態訊息朗讀與長檔名換行。
-
-## 尚未實作
-
-「開始解析」只顯示尚未開放的訊息，不讀取檔案內容。姓名與日期選擇、PDF／Excel 解析、班表驗證、換班搜尋與建議均留待後續階段。
-
-副檔名辨識僅用於介面提示，不代表檔案內容已通過驗證。
-
-## 架構與擴充
-
-```text
-nss-shift-swap-finder/
-├── index.html
-├── css/style.css
-├── js/app.js
-├── README.md
-└── .gitignore
+```sh
+cd /Users/becklee/Documents/GitHub/nss-shift-swap-finder
+python3 scripts/serve.py
 ```
 
-使用原生 HTML、CSS 與 JavaScript，無框架、後端或資料庫。`app.js` 以封閉模組隔離狀態，分離 `FileFormat` 與匯入控制器，並提供 `window.NSSShiftSwapFinder` 命名空間。使用一般 deferred script，讓直接開啟本機 HTML 也能操作。
+用 Chrome、Safari 或其他支援現代 JavaScript 模組的瀏覽器開啟 <http://127.0.0.1:8000/>。結束時回到 Terminal 按 Control+C。若 8000 已使用，可執行 `python3 scripts/serve.py --port 8001` 並開啟對應網址。
 
-`Services` 保留 `pdfParser`、`excelParser`、`scheduleValidator`、`swapEngine` 四個入口，目前皆為 `null`。後續可在 `js/` 新增獨立模組，定義服務契約與注入機制後整合 NSS；目前未引入解析套件。
+這是僅綁定 `127.0.0.1` 的靜態程式伺服器，不處理班表資料，也不接受上傳；不提供 `test-data/`、`sources/` 或 `.git/`。PDF.js 模組與 Worker 需要 HTTP；直接雙擊 `index.html` 的 `file://` 模式不支援 PDF 解析。
 
-## 隱私與版本管理
+1. 選擇或拖曳一個 PDF、XLSX 或 XLS（最多 25 MB）。
+2. 按「開始解析」。多張可能的 Excel 班表會顯示工作表選單，選擇後再按一次。
+3. 查看員工人數、可辨識／異常員工人數、日期數量與範圍，以及可展開的錯誤／警告。
+4. 即使基礎驗證通過，正式四週期仍未確認，不能進入搜尋。
+5. 更換或移除檔案立即清除前份班表狀態，舊的非同步結果不會覆蓋新選擇。
 
-檔案僅由瀏覽器暫存參照，移除或關閉頁面即釋放；不保存到本機儲存空間、不讀取班表內容、不傳送到伺服器。本專案不含網路請求、追蹤程式或外部字型。
+## 解析支援與限制
 
-請勿放入或提交真實護理師班表與員工個資。`.gitignore` 預設排除 PDF／Excel 檔案，仍應自行確認其他格式不含個資。
+### PDF
 
-## 手動驗收
+使用文字座標重建列，再依表頭欄界對應身分與每日班別；不採用原始文字擷取順序。支援多頁與重複表頭，依員工編號合併，保留全部日期與來源頁碼／座標。重複編號會警告；同日不同班別或同編號不同姓名會列為個別員工衝突，保留衝突兩值供後續定位。
 
-使用空白或不含個資的檔案測試：
+目前支援可擷取文字、表頭含「姓名／Name」、「員工編號／ID」及每欄日期的橫向表格。表頭文字需能各自擷取為文字項目；文字跨欄、偏離欄位、無法辨識身分列或某頁缺少表頭都會阻擋全域可信度。此版不支援 OCR、掃描型 PDF、加密 PDF、旋轉／複雜多層表頭、表格跨頁但無重複表頭、只有日數的表頭。中文 CMap 與標準字型已本機保存；特殊字型文件仍可能無法辨識。
 
-1. 開啟首頁，確認「開始解析」初始停用。
-2. 選擇或拖曳 PDF、XLSX、XLS（含大寫副檔名），確認檔名、格式與按鈕啟用。
-3. 點擊「開始解析」，確認僅顯示尚未開放訊息。
-4. 移除檔案，確認檔名清除、按鈕停用。
-5. 拖曳不支援的檔案或多個檔案，確認錯誤提示與按鈕停用。
-6. 使用手機寬度與桌面寬度檢查排版，使用 Tab／Enter 操作選擇、移除與解析按鈕。
+**解析器已完成合成資料測試，但尚未通過實際醫院班表驗證。** 不宣稱完整支援醫院 PDF 格式。
+
+### Excel
+
+使用 SheetJS 解碼 XLSX 與 XLS，掃描全部工作表與資料列找表頭，沒有假設第一張工作表或第一列就是班表。支援欄位位置變動、合併標題、身分表頭的直向合併、文字日期與有日期格式的數值儲存格、1900／1904 日期系統。跨欄／跨列合併的每日日期或班別無法可靠配對，會標示全域問題，不填補為相同班別。
+
+多張候選工作表先由使用者選擇，不自行合併；無可辨識表頭會解釋原因。需姓名、員工編號與至少兩個日期欄。格式未標記為日期的數值不猜成日期。公式不運算、巨集不執行、外部連結不抓取；公式儲存格標示待確認。加密或損毀檔案不支援。XLS 已通過合成 BIFF8 檔案測試；其他歷史版本與特殊編碼尚未驗證。
+
+### 共用日期與班別規則
+
+- 日期使用 `YYYY-MM-DD`，以 UTC 日期運算，避免本機時區偏移。
+- 支援完整西元日期，或在表頭／標題有唯一年份時使用月／日。12 月到 1 月依序跨年，其餘逆序不自動修正。缺少年份、無效日期、日期中間出現不可辨識欄、重複／缺漏／順序異常皆標示全域錯誤。讀到 `1/16` 而依前欄應為 `11/11`，會保留讀到的日期並提示確認；不將它修正為推測日期。
+- 工作班別：`A`、`E`、`N`。休假白名單：`O`、`OF`、`ON`、`OZ`、`O1`、`O6`、`O8`。
+- 保留原始代碼（僅移除前後空白），不把 `OF` 改成 `O`。未知 O 系列與其他未知代碼均待確認，空白不是休假。
+- `Validator.validate(model, {extraLeaveCodes: [...]})` 預留本次解析白名單；此版沒有確認或編輯介面，也不修改全域白名單。
+- 全域錯誤阻擋整份班表可信度。局部錯誤只標記對應員工 `validation.complete=false`，其他完整員工仍保留，供後續排除機制使用。
+
+## 架構與資料模型
+
+```text
+index.html                 既有首頁、工作表選擇、結果與警告
+css/style.css              原有設計與結果區樣式
+js/app.js                  選檔與非同步狀態、統計呈現
+js/schedule-model.js       資料模型、共用日期／班別、表格轉換
+js/schedule-validator.js   全域與局部驗證
+js/pdf-parser.js           PDF.js 與座標欄列辨識
+js/excel-parser.js         SheetJS 與工作表／日期系統辨識
+vendor/                    固定版函式庫、CMap、字型與授權
+scripts/serve.py           僅提供程式資源的本機伺服器
+tests/                    合成資料、單元、伺服器與瀏覽器整合測試
+test-data/                本機私有測試、截圖與瀏覽器 profile（Git 忽略）
+```
+
+沿用封閉 JavaScript 模組及 `window.NSSShiftSwapFinder` 命名空間。`Services` 對接兩種解析器與驗證器；`swapEngine` 維持 `null`。未來換班引擎僅依賴共用模型。
+
+解析器回傳 `sourceType`、`scheduleStartDate`、`scheduleEndDate`、`scheduleDates`、`employees`（`id`、`name`、`shifts`、來源資訊與個別驗證）、`unresolvedDateColumns`、`warnings`、`errors`、`validation`。錯誤含 `scope`（global／local）、`code`、訊息、來源位置及相關員工編號。
+
+`cycleStartDate`、`cycleEndDate`、`cycleSource` 維持 `null`；`cycleCandidates=[]`、`cycleConfirmed=false`。此版 `cycleLengthValid=false`、`hasBlockingIssues=true`、`readyForSearch=false`，即使共用資料有 28 天也不推定正式四週期。額外的 `basicValidationPassed` 與 `completeEmployeeCount` 供統計使用。
+
+## 函式庫與安全
+
+- **PDF.js 6.4.299**：Mozilla 官方 `pdfjs-dist` 的 legacy ES module 與同版 Worker，適合文字座標擷取。按解析時才載入，Worker 在裝置內運作。CMap／標準字型需求僅抓取本機資源，不採用遠端文件 URL。
+- **SheetJS 0.20.3**：官方完整 standalone script，以本機 deferred script 載入，涵蓋 XLSX／XLS 與日期系統。未使用 Worker；大型 Excel 仍可能暫時阻塞主執行緒。
+- 無其他執行期依賴、框架、資料庫或雲端解析。來源、授權與主要檔案校驗碼見 `vendor/README.md`。
+- 僅同源程式、Worker、字型資源有 GET 請求；班表以 `File.arrayBuffer()` 讀入記憶體，不送到伺服器。CSP 限制外部連線與表單提交。程式不記錄完整班表、不使用 localStorage／IndexedDB，也不保存解析結果。
+- `test-data/` 已建立並忽略；PDF／Excel 副檔名亦預設忽略。請勿提交任何真實班表／個資。未修改 `sources/`（開發時此目錄不存在）。
+
+## 測試
+
+`test-data/` 已放入不含個資的合成範例（檔名以 `synthetic-` 開頭），可直接在首頁選擇：正常／多頁／無文字 PDF、正常 XLSX／XLS，以及含局部異常與多工作表的 XLSX。若需要重新產生，可執行 `node tests/generate-fixtures.cjs`；既有同名檔案不會被覆寫。這些文件均被 Git 忽略。
+
+需要 Node.js，無需安裝套件即可執行核心測試：
+
+```sh
+node --test tests/parsers.test.cjs tests/pdf-diagnostics.test.cjs
+python3 -B tests/server.test.py
+```
+
+瀏覽器整合測試需要現有 Playwright 與 Google Chrome（沒有納入執行期依賴）：
+
+```sh
+node --test tests/browser.test.cjs
+```
+
+若 Playwright 不在預設搜尋路徑，透過 `NODE_PATH` 指定既有安裝位置。Chrome 預設為 Mac 的 `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`，可用 `CHROME_PATH` 覆寫。
+
+合成測試涵蓋：座標 PDF、多頁、重複表頭、日期／班別錯位、無文字 PDF、實際 XLSX／XLS 解碼、合併儲存格、多工作表、Excel 日期系統、跨月跨年、未知 O 代碼、空白班別、員工衝突、局部與全域錯誤、資料清除及過期非同步結果。瀏覽器測試生成真實 PDF bytes 並由本機 PDF.js／Worker 解碼，也檢查手機／桌面無水平溢出及零外傳請求。
+
+開發驗證：18 組核心測試、1 組 Chrome 整合測試與 3 組伺服器測試通過；截圖已人工檢視。網路監測僅出現同源 GET 程式資源，未出現檔案上傳或外部請求。Safari 與實際醫院班表尚未驗證。測試不含真實員工資料。
+
+## PDF 診斷修正
+
+PDF 錯誤現在區分函式庫載入、本機讀檔、文件載入（含 Worker 初始化）、頁面載入、文字擷取、明顯編碼異常，以及表格辨識。文字擷取成功後的表格錯誤不會再顯示成文字擷取失敗；清理資源的例外亦不會覆蓋原始結果。啟用 `stopAtErrors`，避免 PDF.js 默默略過擷取錯誤。編碼檢查僅偵測替代字元與異常控制碼，不能保證所有文字映射都正確。
+
+新增 `pdfDiagnostics` 僅含階段、頁數、每頁文字項目數、固定錯誤類型與清理狀態；不含檔名、文字、員工資料或底層錯誤訊息，不寫 Console 或自動保存。既有狀態列會顯示這些安全統計。
+
+PDF 表頭支援同欄跨行／分段文字合併。班別依欄界定位，允許欄內靠左文字；間距異常、跨欄文字與造成缺欄的班別碰撞仍會阻擋。孤立頁尾不再當作員工資料。未對應日期的欄位以 `pdfUnresolvedColumns` 保留原始表頭與每位員工的值於記憶體，仍標示問題，不猜測日期。`pdfHeaderMetadata` 保留被辨識為前置非班別資訊的原始標籤。正式四週期與日期人工修正仍未開發。
+
+額外合成回歸測試涵蓋各階段例外、錯誤訊息去識別、清理失敗、編碼／座標異常、跨行日期、靠左班別、頁尾與未對應欄位保留。合成單元測試共 24 組，Chrome 整合測試檢查 Worker 與本機 CMap／字型資源，並保留 Excel 回歸測試。實際文件的診斷內容不收錄於本文件或測試資料。
+
+`pdfTableRecognized` 僅表示欄列幾何及員工對應已辨識，不代表資料驗證通過。當表格已辨識，但日期、班別或未對應欄位仍有問題，診斷階段為「PDF 資料驗證」；原有錯誤、警告及搜尋阻擋條件保持不變。新增合成測試驗證這兩種階段不會混淆。
+
+### 本機 Safari 手動診斷
+
+診斷模式預設關閉，僅接受本機 HTTP 網頁。開啟 Safari Web Inspector 的 Console，執行：
+
+```js
+await NSSShiftSwapFinder.PdfParser.startDiagnostics()
+```
+
+這會生成不含員工資料的單頁 PDF，透過相同版本、Worker、資源設定及 `getTextContent()` 執行自我測試。`probe` 提供此合成 PDF 的完整例外 message 與 stack；`streamAsyncIterator` 顯示瀏覽器是否支援 PDF.js 使用的串流非同步迭代。
+
+接著在原有網頁重新匯入 PDF 並按「開始解析」，於 Console 執行：
+
+```js
+JSON.stringify(NSSShiftSwapFinder.PdfParser.getDiagnostics(), null, 2)
+```
+
+`lastFailure` 只含階段、數量、錯誤類型及本機程式位置；只有原始訊息與合成 PDF 例外完全一致時，才顯示已比對的訊息。其餘訊息隱藏，真實文件的原始 stack 不保留。`matchesSyntheticProbe` 用於確認兩者是否為相同 API 例外，不能僅因 API 缺少便認定真實文件的失敗原因。沒有自動 Console 輸出、儲存或外傳。關閉診斷或重新整理頁面即可清除：
+
+```js
+NSSShiftSwapFinder.PdfParser.stopDiagnostics()
+```
+
+Source Map 僅供開發工具映射原始碼，404 與文字擷取例外需分開判讀。
+
+### Safari 串流讀取相容處理
+
+PDF.js 6.4.299 的 `getTextContent()` 使用 `ReadableStream` 非同步迭代。瀏覽器缺少此 API 時，自有解析器改用官方 `streamTextContent()`，透過 `getReader().read()` 依序合併 items、styles 與 lang；讀取失敗會取消串流並釋放鎖，不掩蓋原始錯誤。支援非同步迭代的 Chrome 保留原本流程，純 XFA 文件亦保留 PDF.js 專用流程。不修改 PDF.js／Worker、不更換版本、不新增外部資源。
+
+診斷中的 `textExtractionMethod` 會顯示 `streamTextContent.getReader` 或 `getTextContent`。Safari 手動驗收：重新整理後執行上方診斷，再重新匯入 PDF；合成 probe 應成功，真實文件應完成文字擷取及表格辨識，待確認日期、班別與未對應欄位仍不得放行搜尋。自動化回歸涵蓋缺少非同步迭代 API、多頁合成 PDF 的兩條路徑一致性，以及讀取／清理失敗；模擬測試不等於實際 Safari 驗收。

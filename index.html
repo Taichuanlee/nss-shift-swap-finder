@@ -3,16 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; worker-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; object-src 'none'; form-action 'none'; base-uri 'self'">
   <meta name="description" content="在您的裝置上尋找護理師換班建議。">
   <title>NSS Shift Swap Finder</title>
   <link rel="stylesheet" href="css/style.css">
+  <script src="vendor/sheetjs/xlsx.full.min.js" defer></script>
+  <script src="js/schedule-model.js" defer></script>
+  <script src="js/schedule-validator.js" defer></script>
+  <script src="js/pdf-parser.js" defer></script>
+  <script src="js/excel-parser.js" defer></script>
   <script src="js/app.js" defer></script>
 </head>
 <body>
   <main class="page">
     <header class="header">
       <div class="brand-mark" aria-hidden="true">N</div>
-      <span class="version">PHASE 1 · v0.1</span>
+      <span class="version">v0.2A-1</span>
     </header>
     <section class="intro" aria-labelledby="page-title">
       <p class="eyebrow">讓休假安排，多一個可能</p>
@@ -33,12 +39,13 @@
         </div>
         <div class="selected-file" id="selected-file" hidden>
           <span class="format-badge" id="file-format"></span>
-          <div class="file-detail"><p id="file-name"></p><span>已選擇 · 尚未解析</span></div>
+          <div class="file-detail"><p id="file-name"></p><span id="file-state">已選擇 · 尚未解析</span></div>
           <button class="remove-file" id="remove-file" type="button" aria-label="移除已選擇的班表">移除</button>
         </div>
         <p class="status" id="status" role="status" aria-live="polite" aria-atomic="true"></p>
+        <div id="sheet-choice" class="sheet-choice" hidden><label for="sheet-select">選擇要解析的班表工作表</label><select id="sheet-select"></select></div>
         <button class="parse-button" id="parse-button" type="button" disabled>開始解析 <span aria-hidden="true">→</span></button>
-        <p class="phase-note">目前為介面預覽，班表解析與換班建議將於後續階段提供。</p>
+        <p class="phase-note">解析於裝置上執行。正式四週期尚未確認，換班搜尋未開放。</p>
       </section>
       <section class="card guide-card" aria-labelledby="guide-title">
         <p class="eyebrow">HOW IT WORKS</p><h2 id="guide-title">四個步驟，找到換班可能</h2>
@@ -51,6 +58,13 @@
         <p class="guide-note">步驟 2–4 尚未開放</p>
       </section>
     </div>
+    <section class="card result-card" id="parse-result" aria-labelledby="result-title" hidden>
+      <h2 id="result-title">解析與基礎驗證結果</h2>
+      <p id="result-state" class="status"></p>
+      <dl id="result-summary" class="result-summary"></dl>
+      <p class="phase-note">解析完成不代表班表可用。正式四週期未確認；全域問題影響整份班表可信度，個別員工問題保留供後續排除機制使用。</p>
+      <details><summary>查看錯誤與警告</summary><ul id="result-issues" class="result-issues"></ul></details>
+    </section>
     <aside class="privacy" aria-label="隱私提醒"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z" stroke="currentColor" stroke-width="1.7"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><div><strong>您的班表，留在您的裝置</strong><p>班表資料將於您的裝置上處理，不會上傳至伺服器。</p></div></aside>
     <footer>NSS Shift Swap Finder <span>·</span> 為護理師的時間，多留一點彈性</footer>
   </main>
