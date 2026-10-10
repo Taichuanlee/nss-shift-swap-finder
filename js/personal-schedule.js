@@ -36,7 +36,7 @@
       return {date, code, kind, weekday:weekdays[new Date(`${date}T00:00:00Z`).getUTCDay()]};
     });
   }
-  function createController(root, guide) {
+  function createController(root, guide, {onConfirmed=()=>{},onInvalidated=()=>{}}={}) {
     const panel=root.querySelector('#identity-selection'), personal=root.querySelector('#personal-schedule');
     const searchInput=root.querySelector('#employee-search'), results=root.querySelector('#employee-results');
     const selection=root.querySelector('#identity-review'), message=root.querySelector('#identity-status');
@@ -46,6 +46,7 @@
     function storage() { try { return window.localStorage; } catch { return null; } }
     function label(employee) { return `${employee.name} · 員工編號：${employee.id}`; }
     function invalidate() {
+      onInvalidated();
       selectedId=null; confirmedId=null; selection.hidden=true; personal.hidden=true; weeks.replaceChildren();
       picker.hidden=false; root.querySelector('#confirmed-identity').hidden=true;
       root.querySelector('#confirmed-name').textContent=''; root.querySelector('#identity-review-name').textContent='';
@@ -99,11 +100,16 @@
           const weekday=root.createElement('span'); weekday.className='day-weekday'; weekday.textContent=`週${day.weekday}`;
           const shift=root.createElement('strong'); shift.textContent=day.code;
           cell.setAttribute('aria-label',`${day.date} 星期${day.weekday} ${day.code} ${day.kind==='work'?'上班':'休假'}`);
-          cell.append(time,weekday,shift); row.append(cell);
+          if(day.kind==='work') {
+            const chooseDay=root.createElement('button');chooseDay.type='button';chooseDay.className='want-day';chooseDay.dataset.date=day.date;
+            chooseDay.setAttribute('aria-pressed','false');chooseDay.setAttribute('aria-label',`${day.date} 星期${day.weekday} ${day.code}，選擇想休日期`);
+            chooseDay.append(time,weekday,shift);cell.append(chooseDay);
+          } else cell.append(time,weekday,shift);
+          row.append(cell);
         }
         weeks.append(row);
       }
-      personal.hidden=false; guide(personal);
+      personal.hidden=false; onConfirmed(model,confirmedId); guide(personal);
     });
     root.querySelector('#switch-employee').addEventListener('click',()=> {invalidate(); renderSaved(); guide(panel);});
     root.querySelector('#forget-identity').addEventListener('click',()=> {

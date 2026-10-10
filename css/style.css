@@ -33,3 +33,26 @@
 .day-weekday {font-size:12px}
 .personal-day strong {font-size:20px}
 @media(max-width:480px) {.identity-card,.personal-card {padding:16px}.personal-week {gap:3px}.personal-day {gap:5px;padding:10px 1px;border-radius:7px}.personal-day time,.day-weekday {font-size:10px}.personal-day strong {font-size:15px}}
+
+/* Local swap selection and results. */
+.swap-card {margin-top:24px;scroll-margin-top:24px;min-width:0}
+.swap-card:focus-visible {outline:3px solid var(--teal);outline-offset:4px}
+.personal-day:has(.want-day) {padding:0}
+.want-day {display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;width:100%;min-height:96px;padding:12px 1px;border:2px solid transparent;border-radius:9px;color:inherit;background:transparent}
+.want-day[aria-pressed="true"] {border-color:var(--teal);background:#d2eddf}
+.want-day:focus-visible {outline:3px solid var(--teal);outline-offset:2px}
+.exchange-fieldset {border:1px solid var(--border);border-radius:10px;padding:12px;min-width:0;margin:16px 0}
+#exchange-dates {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.exchange-option,.emergency-option {display:flex;align-items:center;gap:10px;min-height:48px;padding:10px;border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:14px;overflow-wrap:anywhere}
+.exchange-option input,.emergency-option input {width:20px;height:20px;flex-shrink:0}
+.emergency-option {background:#fff5e6}
+.swap-group {margin-top:24px}
+.swap-group h3 {font-size:17px;overflow-wrap:anywhere}
+.swap-candidate {margin:14px 0;padding:16px;border:1px solid var(--border);border-radius:12px;background:#f8fbf8;overflow-wrap:anywhere}
+.swap-candidate h4 {margin:0;font-size:16px}
+.swap-tag {color:var(--teal);font-weight:600;font-size:13px}
+.cross-shift {color:#8b5d28}
+.swap-changes {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;font-size:14px}
+.swap-changes small {display:block;margin:6px 0;color:var(--muted)}
+.swap-warnings {padding-left:20px;line-height:1.7;font-size:13px;color:#805b2d}
+@media(max-width:480px) {.swap-card {padding:16px}#exchange-dates,.swap-changes {grid-template-columns:minmax(0,1fr)}.want-day {min-height:82px;gap:5px;padding:10px 0}.swap-candidate {padding:12px}}

@@ -10,13 +10,13 @@
   });
 
   const ns = window.NSSShiftSwapFinder;
-  // Parsers share one data model and validator; swap search stays unavailable.
+  // Parsing and local swap simulation share the validated data model.
   const Services = Object.freeze({
     pdfParser: ns.PdfParser,
     excelParser: ns.ExcelParser,
     scheduleValidator: ns.Validator,
     importConfirmation: ns.ImportConfirmation,
-    swapEngine: null,
+    swapEngine: ns.SwapEngine,
   });
 
   function createImportController(root) {
@@ -44,7 +44,8 @@
     const confirmCycle = root.querySelector('#confirm-cycle');
     const progressSteps = Array.from(root.querySelectorAll('#import-progress li'));
     const issueDetails = root.querySelector('#issue-details');
-    const personal = ns.PersonalSchedule.createController(root, guideTo);
+    const swaps = ns.SwapUI.createController(root, guideTo);
+    const personal = ns.PersonalSchedule.createController(root, guideTo, {onConfirmed:swaps.setIdentity,onInvalidated:swaps.reset});
     function setProgress(current, complete = false, currentLabel = '目前階段') {
       progressSteps.forEach((step,index) => {
         const state = complete || index < current ? 'completed' : index === current ? 'current' : 'pending';
@@ -330,6 +331,6 @@
   }
 
   // Stable namespace for future NSS integration and separately loaded services.
-  Object.assign(ns, {version: '0.3', FileFormat, Services});
+  Object.assign(ns, {version: '0.4.1', FileFormat, Services});
   createImportController(document);
 })();

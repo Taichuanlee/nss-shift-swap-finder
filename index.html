@@ -14,19 +14,21 @@
   <script src="js/excel-parser.js" defer></script>
   <script src="js/import-confirmation.js" defer></script>
   <script src="js/personal-schedule.js" defer></script>
+  <script src="js/swap-engine.js" defer></script>
+  <script src="js/swap-ui.js" defer></script>
   <script src="js/app.js" defer></script>
 </head>
 <body>
   <main class="page">
     <header class="header">
       <div class="brand-mark" aria-hidden="true">N</div>
-      <span class="version">v0.3</span>
+      <span class="version">v0.4.1</span>
     </header>
     <section class="intro" aria-labelledby="page-title">
       <p class="eyebrow">讓休假安排，多一個可能</p>
       <h1 id="page-title">NSS Shift Swap Finder</h1>
       <p class="subtitle">護理師換班搜尋工具</p>
-      <p class="description">從四週期班表開始，尋找適合的換班對象。<br class="desktop-break">未來將協助分析雙方班表影響，換班仍由您確認與安排。</p>
+      <p class="description">從四週期班表開始，尋找適合的換班對象。<br class="desktop-break">分析雙方換班後的班表影響，換班仍由您確認與安排。</p>
     </section>
     <div class="workspace">
       <section class="card import-card" aria-labelledby="import-title">
@@ -53,7 +55,7 @@
         <div id="import-status-slot"><p class="status" id="status" role="status" aria-live="polite" aria-atomic="true"></p></div>
         <div id="sheet-choice" class="sheet-choice" hidden><label for="sheet-select">選擇要解析的班表工作表</label><select id="sheet-select"></select></div>
         <button class="parse-button" id="parse-button" type="button" disabled>開始解析 <span aria-hidden="true">→</span></button>
-        <p class="phase-note">開始解析只讀取班表；確認正式四週期後才完成匯入。換班搜尋尚未開放。</p>
+        <p class="phase-note">開始解析只讀取班表；確認正式四週期後才完成匯入。確認身分後，可選擇日期搜尋雙向換班。</p>
       </section>
       <section class="card guide-card" aria-labelledby="guide-title">
         <p class="eyebrow">HOW IT WORKS</p><h2 id="guide-title">四個階段，完成班表匯入</h2>
@@ -63,7 +65,7 @@
           <li><span class="step-number">3</span><div><h3>確認四週期</h3><p>核對或修改開始日期，再明確確認正式 28 天週期。</p></div></li>
           <li><span class="step-number">4</span><div><h3>匯入完成</h3><p>資料驗證與四週期確認通過後，選擇自己並確認身分，即可查看個人班表。</p></div></li>
         </ol>
-        <p class="guide-note">日期或班別有待處理問題時，請先核對原班表。換班搜尋尚未開放。</p>
+        <p class="guide-note">日期或班別有待處理問題時，請先核對原班表。確認身分後，可選擇日期搜尋雙向換班。</p>
       </section>
     </div>
     <section class="card result-card" id="parse-result" aria-labelledby="result-title" hidden>
@@ -90,7 +92,7 @@
       <h3 class="result-step-title">3. 查看匯入結果</h3>
       <p id="result-state" class="status"></p>
       <dl id="result-summary" class="result-summary"></dl>
-      <p class="phase-note">只有日期、班別與正式四週期確認全部通過，才完成匯入確認。本階段不提供換班搜尋。</p>
+      <p class="phase-note">只有日期、班別與正式四週期確認全部通過，才完成匯入確認。確認身分後才能搜尋換班。</p>
       <details id="issue-details" tabindex="-1"><summary>查看錯誤與警告</summary><ul id="result-issues" class="result-issues"></ul></details>
     </section>
     <section class="card identity-card" id="identity-selection" tabindex="-1" aria-labelledby="identity-title" hidden>
@@ -113,7 +115,25 @@
       <p id="personal-range" class="confirmation-help"></p>
       <p class="calendar-legend"><span>● A／E／N 上班</span><span>● O 系列休假</span></p>
       <div id="personal-weeks"></div>
-      <p class="phase-note">完整顯示正式四週期 28 天，依開始日期排列。此處只供查看；換班搜尋尚未開放。</p>
+      <p class="phase-note">完整顯示正式四週期 28 天，依開始日期排列。點選 A／E／N 工作日，選擇想休日期；班表不會被修改。</p>
+    </section>
+    <section class="card swap-card" id="swap-search" tabindex="-1" aria-labelledby="swap-title" hidden>
+      <h2 id="swap-title">尋找雙向換班同仁</h2>
+      <p class="confirmation-help">1. 點選上方班表的工作日 → 2. 勾選願意交換的休假日 → 3. 搜尋同仁。</p>
+      <p id="wanted-date">請先點選上方班表的工作日。</p>
+      <div id="exchange-picker" hidden>
+        <fieldset class="exchange-fieldset"><legend>願意交換的休假日（可複選）</legend><div id="exchange-dates"></div></fieldset>
+        <label class="emergency-option"><input type="checkbox" id="emergency-mode"><span>🆘 我已經沒招了 XD</span></label>
+        <p class="confirmation-help">預設同班別交換。主動開啟緊急模式才搜尋跨班別；搜尋後自動關閉，連續上班限制仍有效。</p>
+        <button id="search-swaps" type="button" class="parse-button" disabled>搜尋換班同仁</button>
+      </div>
+      <p id="swap-status" class="status" role="status" aria-live="polite"></p>
+    </section>
+    <section class="card swap-card" id="swap-results-panel" tabindex="-1" aria-labelledby="swap-results-title" hidden>
+      <h2 id="swap-results-title">換班搜尋結果</h2>
+      <p id="swap-results-note" class="confirmation-help"></p>
+      <div id="swap-results"></div>
+      <p class="phase-note">僅提供模擬建議，不會自動換班、聯絡同仁或修改正式班表；實際換班仍需依院內流程確認。</p>
     </section>
     <aside class="privacy" aria-label="隱私提醒"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z" stroke="currentColor" stroke-width="1.7"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><div><strong>您的班表，留在您的裝置</strong><p>班表資料將於您的裝置上處理，不會上傳至伺服器。</p></div></aside>
     <footer>NSS Shift Swap Finder <span>·</span> 為護理師的時間，多留一點彈性</footer>
