@@ -238,7 +238,7 @@ test('real browser local parsing, result states, selection reset, no outbound re
   await page.locator('#forget-identity').click();
   assert.equal(await page.evaluate(()=>localStorage.getItem(window.NSSShiftSwapFinder.PersonalSchedule.STORAGE_KEY)),null);
   await page.setViewportSize({width:390,height:844});
-  // v0.4: same-shift/cross-shift grouped simulation and state invalidation.
+  // Same-shift-only grouped simulation and state invalidation.
   const swapDates=dates(33,Date.UTC(2026,11,23));
   const swapRows=[['Synthetic schedule'],['ID','Name',...swapDates],
     ['SELF','Synthetic Self',...swapDates.map((_,i)=>i===8?'A':i===16?'E':'OF')],
@@ -304,18 +304,9 @@ test('real browser local parsing, result states, selection reset, no outbound re
   assert.equal(await page.locator('.preview-toggle').first().getAttribute('aria-expanded'),'true');
   assert.deepEqual(await page.locator('#swap-results h4').allTextContents(),labelsBeforePreview);
   assert.equal(new Set(await page.locator('.candidate-preview').evaluateAll(els=>els.map(el=>el.id))).size,2);
-  await page.locator('#emergency-mode').check();assert.equal(await page.locator('#swap-results-panel').isVisible(),false);
-  await page.locator('#search-swaps').click();await guidedTo('swap-results-panel');
-  assert.equal(await page.locator('.swap-candidate').count(),3);
-  assert.equal(await page.locator('.preview-toggle[aria-expanded="false"]').count(),3);
-  await verifyCandidate(0,swapRows[3],15);
-  await verifyCandidate(1,swapRows[4],15);
-  assert.equal(await page.locator('.preview-toggle').first().getAttribute('aria-expanded'),'true');
-
-  assert.match(await page.locator('#swap-results').textContent(),/跨班別交換/);
-  assert.doesNotMatch(await page.locator('#swap-results').textContent(),/無法計算實際休息時數|受影響區段最多連續上班/);
-  assert.equal(await page.locator('#emergency-mode').isChecked(),false);
-  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+  assert.equal(await page.locator('#emergency-mode').count(),0);
+  assert.doesNotMatch(await page.locator('#swap-search').textContent(),/🆘|沒招|緊急模式/);
+  assert.doesNotMatch(await page.locator('#swap-results').textContent(),/Synthetic Cross|跨班別交換/);
   await page.locator('#swap-results-panel').screenshot({path:path.join(project,'test-data/swap-mobile-synthetic.png')});
   await page.locator('#search-swaps').click();await guidedTo('swap-results-panel');assert.equal(await page.locator('.swap-candidate').count(),2);
   assert.equal(await page.locator('.preview-toggle[aria-expanded="false"]').count(),2);
@@ -338,17 +329,17 @@ test('real browser local parsing, result states, selection reset, no outbound re
     ['FRAGMENT','Synthetic Fragment',...swapDates.map((_,i)=>[6,15].includes(i)?'A':'OF')],
     ['CLEAN','Synthetic Clean',...swapDates.map((_,i)=>i===15?'A':'OF')],
     ['CROSS','Synthetic Cross',...swapDates.map((_,i)=>i===15?'N':i===6?'A':'OF')]];
-  async function searchRiskRows(rows,emergency=false) {
+  async function searchRiskRows(rows) {
     await identityImport(rows);
     await page.locator('#cycle-start').fill(swapDates[0]);await page.locator('#confirm-cycle').click();await guidedTo('identity-selection');
     await page.locator('#employee-search').fill('SELF');await page.locator('.employee-option').click();await page.locator('#confirm-identity').click();await guidedTo('personal-schedule');
     await page.locator(`.want-day[data-date="${swapDates[8]}"]`).click();await guidedTo('swap-search');
-    await page.locator(`#exchange-dates input[value="${swapDates[15]}"]`).check();if(emergency)await page.locator('#emergency-mode').check();
+    await page.locator(`#exchange-dates input[value="${swapDates[15]}"]`).check();
     await page.locator('#search-swaps').click();await guidedTo('swap-results-panel');
   }
-  await searchRiskRows(riskRows,true);
+  await searchRiskRows(riskRows);
   const sortedLabels=await page.locator('#swap-results h4').allTextContents();
-  assert.match(sortedLabels[0],/Synthetic Clean/);assert.match(sortedLabels[1],/Synthetic Fragment/);assert.match(sortedLabels[2],/Synthetic Cross/);
+  assert.match(sortedLabels[0],/Synthetic Clean/);assert.match(sortedLabels[1],/Synthetic Fragment/);assert.equal(sortedLabels.length,2);assert.doesNotMatch(sortedLabels.join(' '),/Synthetic Cross/);
   assert.match(await page.locator('.swap-candidate').first().textContent(),/⚠️ 連續上班 6 天/);
   assert.equal(await page.locator('.swap-candidate').first().locator('.swap-warnings li').count(),1);
   assert.equal(await page.locator('.swap-candidate').nth(1).locator('.swap-warnings li').count(),2);
@@ -357,7 +348,7 @@ test('real browser local parsing, result states, selection reset, no outbound re
   assert.doesNotMatch(await page.locator('#swap-results').textContent(),/受影響區段|最多連續|無法計算實際休息時數/);
   await page.setViewportSize({width:320,height:740});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   await page.locator('#swap-results-panel').screenshot({path:path.join(project,'test-data/swap-risks-mobile-synthetic.png')});
-  await page.locator('#emergency-mode').check();await page.locator('#search-swaps').click();await guidedTo('swap-results-panel');
+  await page.locator('#search-swaps').click();await guidedTo('swap-results-panel');
   assert.deepEqual(await page.locator('#swap-results h4').allTextContents(),sortedLabels);
   const fragmentOnlyRows=riskRows.map(r=>r.slice());fragmentOnlyRows[2]=['SELF','Synthetic Self',...swapDates.map((_,i)=>i===8?'A':'OF')];
   await searchRiskRows(fragmentOnlyRows);

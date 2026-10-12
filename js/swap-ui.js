@@ -4,6 +4,10 @@
   function previewDays(model,result) {
     const days=ns.PersonalSchedule.calendar(model,result.employeeId);
     const changed=[result.wantedDate,result.exchangeDate];
+    const workCode=result.self.before[result.wantedDate];
+    if(!['A','E','N'].includes(workCode) || workCode!==result.other.before[result.exchangeDate] ||
+      result.other.after[result.wantedDate]!==workCode ||
+      result.other.after[result.exchangeDate]!==result.self.before[result.exchangeDate]) throw new Error('只允許相同工作班別交換，請重新搜尋。');
     if(new Set(changed).size!==2 || !changed.every(date=>days.some(day=>day.date===date))) throw new Error('交換日期不在已確認的四週期內。');
     return days.map(day=>{
       if(!changed.includes(day.date)) return {...day};
@@ -15,12 +19,12 @@
   function createController(root,guide) {
     const panel=root.querySelector('#swap-search'),choices=root.querySelector('#exchange-dates');
     const picker=root.querySelector('#exchange-picker'),button=root.querySelector('#search-swaps');
-    const mode=root.querySelector('#emergency-mode'),status=root.querySelector('#swap-status');
+    const status=root.querySelector('#swap-status');
     const output=root.querySelector('#swap-results'),resultsPanel=root.querySelector('#swap-results-panel');
     let model=null,id=null,wanted=null,selected=new Set(),previewSequence=0;
     function clearResults() {output.replaceChildren();resultsPanel.hidden=true;}
     function reset() {
-      model=null;id=null;wanted=null;selected.clear();panel.hidden=true;picker.hidden=true;mode.checked=false;button.disabled=true;
+      model=null;id=null;wanted=null;selected.clear();panel.hidden=true;picker.hidden=true;button.disabled=true;
       choices.replaceChildren();clearResults();status.textContent='';root.querySelector('#wanted-date').textContent='請先點選上方班表的工作日。';
       for(const day of root.querySelectorAll('.want-day'))day.setAttribute('aria-pressed','false');
     }
@@ -34,7 +38,7 @@
     root.querySelector('#personal-weeks').addEventListener('click',event=>{
       const day=event.target.closest('.want-day');if(!day||!model||!id)return;
       const dates=ns.SwapEngine.options(model,id);if(!dates.workDates.includes(day.dataset.date))return;
-      wanted=day.dataset.date;selected.clear();clearResults();mode.checked=false;
+      wanted=day.dataset.date;selected.clear();clearResults();
       for(const option of root.querySelectorAll('.want-day')) option.setAttribute('aria-pressed',String(option===day));
       const employee=ns.PersonalSchedule.uniqueEmployee(model,id);
       root.querySelector('#wanted-date').textContent=`想休：${wanted}（原班別 ${employee.shifts[wanted]}）`;
@@ -45,7 +49,7 @@
         const text=root.createElement('span');text.textContent=`${date} · ${employee.shifts[date]}`;
         checkbox.addEventListener('change',()=>{
           if(checkbox.checked)selected.add(date);else selected.delete(date);
-          clearResults();mode.checked=false;button.disabled=!selected.size;
+          clearResults();button.disabled=!selected.size;
           status.textContent=selected.size?`已選 ${selected.size} 個交換日期，每個日期會分開搜尋。`:'請至少選一個願意交換的休假日。';
         });
         label.append(checkbox,text);choices.append(label);
@@ -53,19 +57,18 @@
       status.textContent=dates.leaveDates.length?'請勾選願意交換的休假日，可複選。':'您的正式四週期沒有可交換的休假日。';
       guide(panel);
     });
-    mode.addEventListener('change',()=>{clearResults();status.textContent=mode.checked?'緊急跨班別模式已開啟；仍會檢查連續上班限制。':'已恢復同班別搜尋。';});
     function element(tag,text,className) {const e=root.createElement(tag);e.textContent=text;if(className)e.className=className;return e;}
     button.addEventListener('click',()=>{
-      clearResults();const emergency=mode.checked;
+      clearResults();
       try {
-        const groups=ns.SwapEngine.search(model,id,wanted,[...selected],{emergency});
+        const groups=ns.SwapEngine.search(model,id,wanted,[...selected]);
         let total=0;
         for(const group of groups) {
           const section=root.createElement('section');section.className='swap-group';
           section.append(element('h3',`交換日期 ${group.exchangeDate} · ${group.results.length} 位同仁`));
           for(const result of group.results) {
             total++;const card=root.createElement('article');card.className='swap-candidate';
-            card.append(element('h4',`${result.name} · 員工編號 ${result.employeeId}`),element('p',result.sameShift?'同班別交換':'跨班別交換',result.sameShift?'swap-tag':'swap-tag cross-shift'));
+            card.append(element('h4',`${result.name} · 員工編號 ${result.employeeId}`),element('p','同班別交換','swap-tag'));
             const changes=root.createElement('div');changes.className='swap-changes';
             for(const [role,detail] of [['您',result.self],['對方',result.other]]) {
               const column=root.createElement('div');column.append(element('strong',role));
@@ -105,11 +108,10 @@
           }
           output.append(section);
         }
-        status.textContent=`找到 ${total} 筆${emergency?'（含跨班別）':'同班別'}換班建議。緊急模式已恢復關閉，下次需重新開啟。`;
-        root.querySelector('#swap-results-note').textContent=`本次${emergency?'允許跨班別':'只搜尋同班別'}交換。每筆只模擬一對日期，未修改班表。`;
+        status.textContent=`找到 ${total} 筆同班別換班建議。`;
+        root.querySelector('#swap-results-note').textContent='只允許 A ↔ A、E ↔ E、N ↔ N。每筆只模擬一對日期，未修改班表。';
         resultsPanel.hidden=false;guide(resultsPanel);
       } catch(error) {status.textContent=error.message;}
-      finally {mode.checked=false;}
     });
     return {reset,setIdentity};
   }

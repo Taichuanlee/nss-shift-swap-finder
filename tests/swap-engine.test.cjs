@@ -11,7 +11,7 @@ function setup(count=33,start='2026-11-04',cycleOffset=5) {
  self.shifts[d1]='A';other.shifts[d2]='A';ns.Validator.validate(m);
  assert.equal(m.validation.readyForSearch,true);return {m,ds,self,other,d1,d2};
 }
-function result(s,d2=s.d2,emergency=false){return E.search(s.m,'SELF',s.d1,[d2],{emergency})[0];}
+function result(s,d2=s.d2){return E.search(s.m,'SELF',s.d1,[d2])[0];}
 test('same-shift two-way simulation preserves original shifts, raw details and excludes self',()=>{
  const s=setup(),before=JSON.stringify(s.m),r=result(s).results[0];assert.equal(r.employeeId,'OTHER');assert.equal(r.sameShift,true);
  assert.equal(r.self.after[s.d1],'O');assert.equal(r.self.after[s.d2],'A');assert.equal(r.other.after[s.d1],'A');assert.equal(r.other.after[s.d2],'OF');
@@ -31,9 +31,9 @@ test('invalid direction, unknown shifts, invalid identity, duplicate ID and unco
  s=setup();s.m.cycleConfirmed=false;assert.throws(()=>result(s));
  s=setup();assert.throws(()=>E.search(s.m,'SELF',s.d2,[s.d1]));assert.throws(()=>E.search(s.m,'SELF',s.d1,[]));
 });
-test('six-day newly merged run is excluded, including in emergency mode',()=>{
+test('six-day newly merged run remains excluded',()=>{
  const s=setup();for(let i=5;i<=10;i++)if(s.ds[i]!==s.d1)s.other.shifts[s.ds[i]]='A';
- assert.equal(result(s).excluded.consecutive,1);s.other.shifts[s.d2]='N';assert.equal(result(s,s.d2,true).excluded.consecutive,1);
+ assert.equal(result(s).excluded.consecutive,1);
 });
 test('pre-existing long run cannot be extended; unrelated long run does not justify a new one',()=>{
  let s=setup();for(let i=9;i<=14;i++)s.other.shifts[s.ds[i]]='A';s.d2=s.ds[20];s.other.shifts[s.d2]='A';assert.equal(result(s).excluded.consecutive,1);
@@ -47,10 +47,20 @@ test('existing >5-day segment is allowed when exchange does not worsen it',()=>{
 test('user consecutive days warn without a hard limit',()=>{
  const s=setup();for(let i=13;i<=19;i++)if(s.ds[i]!==s.d2)s.self.shifts[s.ds[i]]='N';const r=result(s).results[0];assert.ok(r.self.impact.afterMax>5);assert.match(r.warnings.join(' '),/⚠️ 連續上班 7 天/);
 });
-test('emergency mode is opt-in; cross-shift adjacency risks have no invented rest hours',()=>{
- const s=setup();s.other.shifts[s.d2]='N';s.self.shifts[s.ds[14]]='E';s.other.shifts[s.ds[9]]='N';
- assert.equal(result(s).excluded.shift,1);const r=result(s,s.d2,true).results[0];assert.equal(r.sameShift,false);assert.ok(r.self.impact.transitions.length);assert.ok(r.other.impact.transitions.length);
- assert.doesNotMatch(r.warnings.join(' '),/無法計算實際休息時數|相鄰工作日/);assert.equal(result(s).results.length,0);
+test('all work-code pairs and reversed employee/date direction enforce equality, even with obsolete overrides',()=>{
+ for(const selfCode of ['A','E','N'])for(const otherCode of ['A','E','N']) {
+  const s=setup();s.self.shifts[s.d1]=selfCode;s.other.shifts[s.d2]=otherCode;
+  const before=JSON.stringify(s.m);
+  for(const [id,d1,d2] of [['SELF',s.d1,s.d2],['OTHER',s.d2,s.d1]]) {
+   for(const extra of [undefined,{emergency:true},{sameShift:false},{allowCrossShift:true},true]) {
+    const group=E.search(s.m,id,d1,[d2],extra)[0];
+    assert.equal(group.results.length,selfCode===otherCode?1:0);
+    if(selfCode!==otherCode)assert.equal(group.excluded.shift,1);
+    for(const r of group.results)assert.equal(r.self.before[d1],r.other.before[d2]);
+   }
+  }
+  assert.equal(JSON.stringify(s.m),before);
+ }
 });
 test('provided pre-cycle days count toward full affected run; out-of-cycle dates cannot be exchanged',()=>{
  const s=setup();s.self.shifts[s.d1]='OF';s.d1=s.m.cycleStartDate;s.self.shifts[s.d1]='A';
@@ -97,28 +107,55 @@ test('improvement elsewhere cannot cancel a newly fragmented neighborhood',()=>{
  assert.equal(r.beforeCount,r.afterCount);assert.equal(r.worsened,true);assert.equal(r.regions.length,2);
 });
 test('stable sorting ranks same-shift risk categories then warning count and keeps input unchanged',()=>{
- const row=(id,sameShift,consecutive=false,fragmented=false)=>({employeeId:id,sameShift,risks:{consecutive,fragmented},warnings:[...(consecutive?['long']:[]),...(fragmented?['fragment']:[])]});
- const input=[row('crossMulti',false,true,true),row('both',true,true,true),row('clean2',true),row('crossClean',false),row('long2',true,true),row('fragment',true,false,true),row('clean1',true),row('long1',true,true),row('crossOne',false,false,true)];
+ const row=(id,consecutive=false,fragmented=false)=>({employeeId:id,sameShift:true,risks:{consecutive,fragmented},warnings:[...(consecutive?['long']:[]),...(fragmented?['fragment']:[])]});
+ const input=[row('both',true,true),row('clean2'),row('long2',true),row('fragment',false,true),row('clean1'),row('long1',true)];
  const original=JSON.stringify(input),sorted=E.sortResults(input);
- assert.deepEqual(Array.from(sorted,r=>r.employeeId),['clean2','clean1','fragment','long2','long1','both','crossClean','crossOne','crossMulti']);
+ assert.deepEqual(Array.from(sorted,r=>r.employeeId),['clean2','clean1','fragment','long2','long1','both']);
  assert.equal(JSON.stringify(input),original);assert.equal(new Set(sorted).size,input.length);
  assert.deepEqual(Array.from(E.sortResults(input),r=>r.employeeId),Array.from(sorted,r=>r.employeeId));
 });
-test('search ranks clean same-shift before fragmentation before cross-shift without changing qualification',()=>{
+test('search ranks clean same-shift before fragmentation while excluding different work codes',()=>{
  const s=setup();const clean={...s.other,id:'CLEAN',name:'Synthetic Clean',shifts:{...s.other.shifts}};
  s.other.shifts[s.ds[6]]='A';
  const cross={...clean,id:'CROSS',name:'Synthetic Cross',shifts:{...clean.shifts,[s.d2]:'N'}};
- s.m.employees.push(cross,clean);const r=result(s,s.d2,true);
- assert.deepEqual(Array.from(r.results,e=>e.employeeId),['CLEAN','OTHER','CROSS']);
- assert.equal(r.results[1].risks.fragmented,true);assert.equal(r.results.length,3);
+ s.m.employees.push(cross,clean);const r=result(s,s.d2);
+ assert.deepEqual(Array.from(r.results,e=>e.employeeId),['CLEAN','OTHER']);
+ assert.equal(r.results[1].risks.fragmented,true);assert.equal(r.results.length,2);assert.equal(r.excluded.shift,1);
 });
-test('candidate sets match original safety rules across independent synthetic exchanges and modes',()=>{
+test('candidate sets match original safety rules across independent synthetic exchanges',()=>{
  for(let seed=0;seed<40;seed++) {
   const s=setup();let state=seed+1;const random=()=>{state=(state*1664525+1013904223)>>>0;return state/4294967296;};
   for(let n=0;n<8;n++) {const e={...s.other,id:`SYNTHETIC${n}`,name:'Synthetic',shifts:{...s.other.shifts}};for(const d of s.ds)e.shifts[d]=random()<0.5?'O':['A','E','N'][Math.floor(random()*3)];s.m.employees.push(e);}
-  for(const emergency of [false,true]) {
-   const expected=s.m.employees.filter(e=>e.id!=='SELF'&&['O','OF','ON','OZ','O1','O6','O8'].includes(e.shifts[s.d1])&&['A','E','N'].includes(e.shifts[s.d2])&&(emergency||e.shifts[s.d2]===s.self.shifts[s.d1])&&!E.impact(s.m,e,{[s.d1]:s.self.shifts[s.d1],[s.d2]:s.self.shifts[s.d2]}).worsened).map(e=>e.id).sort();
-   assert.deepEqual(Array.from(result(s,s.d2,emergency).results,e=>e.employeeId).sort(),Array.from(expected));
+  {
+   const expected=s.m.employees.filter(e=>e.id!=='SELF'&&['O','OF','ON','OZ','O1','O6','O8'].includes(e.shifts[s.d1])&&['A','E','N'].includes(e.shifts[s.d2])&&e.shifts[s.d2]===s.self.shifts[s.d1]&&!E.impact(s.m,e,{[s.d1]:s.self.shifts[s.d1],[s.d2]:s.self.shifts[s.d2]}).worsened).map(e=>e.id).sort();
+   assert.deepEqual(Array.from(result(s,s.d2).results,e=>e.employeeId).sort(),Array.from(expected));
   }
  }
+});
+
+test('confirmed annotations stay work, spaced ON stays leave, and unknown annotations never pass',()=>{
+ const ds=dates(28),d1=ds[8],d2=ds[15];
+ for(const raw of ['A休','A休 -8','A-8休','E休','E -8 休','N休','N-8休']) {
+  const code=ns.Model.normalizeShift(raw);
+  const rows=[['ID','Name',...ds],['SELF','Synthetic Self',...ds.map(d=>d===d1?raw:'OF')],['OTHER','Synthetic Other',...ds.map(d=>d===d2?raw:'O N')]];
+  const m=ns.Model.fromTables([{source:{sheet:'Synthetic'},rows:rows.map(r=>r.map(value=>({value})))}],'excel');
+  m.cycleStartDate=ds[0];m.cycleEndDate=ds[27];m.cycleConfirmed=true;ns.Validator.validate(m);
+  assert.ok(['A','E','N'].includes(code));assert.equal(m.employees[0].shifts[d1],code);
+  assert.equal(m.employees[1].shifts[d1],'ON');
+  assert.ok(m.employees[0].shiftDetails[d1].some(detail=>detail.raw===raw));
+  const r=E.search(m,'SELF',d1,[d2])[0].results[0];
+  assert.equal(r.self.before[d1],code);assert.equal(r.other.before[d2],code);assert.equal(r.other.after[d1],code);
+  assert.equal(E.options(m,'SELF').leaveDates.includes(d1),false);
+  m.employees[1].shifts[d2]=code==='A'?'E':'A';assert.equal(E.search(m,'SELF',d1,[d2])[0].results.length,0);
+ }
+ for(const raw of ['A特','E病','休','OX','A/E','AE','A休休','A休 -9','', 'ON']) {
+  const s=setup();s.other.shifts[s.d2]=ns.Model.normalizeShift(raw);
+  assert.equal(result(s).results.length,0);
+  s.self.shifts[s.d1]=ns.Model.normalizeShift(raw);assert.throws(()=>result(s));
+ }
+});
+test('runtime contains no SOS parameter, state, element or cross-shift enablement',()=>{
+ for(const file of ['js/swap-engine.js','js/swap-ui.js','index.html','css/style.css'])
+  assert.doesNotMatch(fs.readFileSync(file,'utf8'),/emergency|emergency-mode|emergency-option|cross-shift|🆘|沒招/);
+ assert.equal(E.search.length,4);
 });

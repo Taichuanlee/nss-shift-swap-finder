@@ -22,7 +22,7 @@
   <main class="page">
     <header class="header">
       <div class="brand-mark" aria-hidden="true">N</div>
-      <span class="version">v0.6</span>
+      <span class="version">v0.6.1</span>
     </header>
     <section class="intro" aria-labelledby="page-title">
       <p class="eyebrow">讓休假安排，多一個可能</p>
@@ -123,8 +123,7 @@
       <p id="wanted-date">請先點選上方班表的工作日。</p>
       <div id="exchange-picker" hidden>
         <fieldset class="exchange-fieldset"><legend>願意交換的休假日（可複選）</legend><div id="exchange-dates"></div></fieldset>
-        <label class="emergency-option"><input type="checkbox" id="emergency-mode"><span>🆘 我已經沒招了 XD</span></label>
-        <p class="confirmation-help">預設同班別交換。主動開啟緊急模式才搜尋跨班別；搜尋後自動關閉，連續上班限制仍有效。</p>
+        <p class="confirmation-help">只允許 A ↔ A、E ↔ E、N ↔ N 同班別交換，並檢查連續上班限制。</p>
         <button id="search-swaps" type="button" class="parse-button" disabled>搜尋換班同仁</button>
       </div>
       <p id="swap-status" class="status" role="status" aria-live="polite"></p>

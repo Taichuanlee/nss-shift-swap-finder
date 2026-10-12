@@ -43,15 +43,13 @@
 .want-day:focus-visible {outline:3px solid var(--teal);outline-offset:2px}
 .exchange-fieldset {border:1px solid var(--border);border-radius:10px;padding:12px;min-width:0;margin:16px 0}
 #exchange-dates {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-.exchange-option,.emergency-option {display:flex;align-items:center;gap:10px;min-height:48px;padding:10px;border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:14px;overflow-wrap:anywhere}
-.exchange-option input,.emergency-option input {width:20px;height:20px;flex-shrink:0}
-.emergency-option {background:#fff5e6}
+.exchange-option {display:flex;align-items:center;gap:10px;min-height:48px;padding:10px;border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:14px;overflow-wrap:anywhere}
+.exchange-option input {width:20px;height:20px;flex-shrink:0}
 .swap-group {margin-top:24px}
 .swap-group h3 {font-size:17px;overflow-wrap:anywhere}
 .swap-candidate {margin:14px 0;padding:16px;border:1px solid var(--border);border-radius:12px;background:#f8fbf8;overflow-wrap:anywhere}
 .swap-candidate h4 {margin:0;font-size:16px}
 .swap-tag {color:var(--teal);font-weight:600;font-size:13px}
-.cross-shift {color:#8b5d28}
 .swap-changes {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;font-size:14px}
 .swap-changes small {display:block;margin:6px 0;color:var(--muted)}
 .swap-warnings {padding-left:20px;line-height:1.7;font-size:13px;color:#805b2d}

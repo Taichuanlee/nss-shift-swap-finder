@@ -11,13 +11,13 @@ function fixture(start) {
  const rows=grid(ds).slice(0,2);
  rows.push(['SELF','Synthetic Self',...ds.map((_,i)=>i===8?'A':'OF')]);
  rows.push(['OTHER','Synthetic Other',...ds.map((_,i)=>[15,20].includes(i)?'A':'ON')]);
- rows.push(['CROSS','Synthetic Cross',...ds.map((_,i)=>i===15?'N':'OZ')]);
+ rows.push(['PEER','Synthetic Peer',...ds.map((_,i)=>i===15?'A':'OZ')]);
  const model=ns.ImportConfirmation.initialize(ns.PdfParser.positionedTables([{pageNumber:1,items:items(rows)}]));
  ns.ImportConfirmation.setCycleStart(model,start);ns.ImportConfirmation.confirmCycle(model);
  return {model,ds};
 }
 for(const start of ['2026-11-04','2026-12-23','2028-02-15'])test(`candidate preview keeps exact 28 dates and both simulated shifts: ${start}`,()=>{
- const {model,ds}=fixture(start),groups=ns.SwapEngine.search(model,'SELF',ds[8],[ds[15],ds[20]],{emergency:true});
+ const {model,ds}=fixture(start),groups=ns.SwapEngine.search(model,'SELF',ds[8],[ds[15],ds[20]]);
  const original=JSON.stringify(model),resultSnapshot=JSON.stringify(groups);
  for(const group of groups)for(const result of group.results){
   const days=ns.SwapUI.previewDays(model,result),employee=model.employees.find(e=>e.id===result.employeeId);
@@ -35,17 +35,17 @@ for(const start of ['2026-11-04','2026-12-23','2028-02-15'])test(`candidate prev
   days[0].code='N';
  }
  assert.equal(JSON.stringify(model),original);assert.equal(JSON.stringify(groups),resultSnapshot);
- assert.equal(JSON.stringify(ns.SwapEngine.search(model,'SELF',ds[8],[ds[15],ds[20]],{emergency:true})),resultSnapshot);
+ assert.equal(JSON.stringify(ns.SwapEngine.search(model,'SELF',ds[8],[ds[15],ds[20]])),resultSnapshot);
 });
 test('candidate and exchange-date previews remain independent',()=>{
  const {model,ds}=fixture('2026-12-23');
- const groups=ns.SwapEngine.search(model,'SELF',ds[8],[ds[15],ds[20]],{emergency:true});
+ const groups=ns.SwapEngine.search(model,'SELF',ds[8],[ds[15],ds[20]]);
  const other=ns.SwapUI.previewDays(model,groups[0].results.find(r=>r.employeeId==='OTHER'));
- const cross=ns.SwapUI.previewDays(model,groups[0].results.find(r=>r.employeeId==='CROSS'));
+ const peer=ns.SwapUI.previewDays(model,groups[0].results.find(r=>r.employeeId==='PEER'));
  const later=ns.SwapUI.previewDays(model,groups[1].results[0]);
- assert.equal(other[0].code,'ON');assert.equal(cross[0].code,'OZ');
- assert.equal(other[15].beforeCode,'A');assert.equal(cross[15].beforeCode,'N');
- assert.equal(cross[8].code,'A');assert.equal(cross[15].code,'OF');
+ assert.equal(other[0].code,'ON');assert.equal(peer[0].code,'OZ');
+ assert.equal(other[15].beforeCode,'A');assert.equal(peer[15].beforeCode,'A');
+ assert.equal(peer[8].code,'A');assert.equal(peer[15].code,'OF');
  assert.equal(other[15].code,'OF');assert.equal(later[15].code,'A');
  assert.equal(other[20].code,'A');assert.equal(later[20].code,'OF');
 });
@@ -58,4 +58,11 @@ test('unconfirmed, stale, invalid or out-of-cycle previews are refused',()=>{
  model.employees.find(e=>e.id==='OTHER').shifts[ds[8]]='N';
  assert.throws(()=>ns.SwapUI.previewDays(model,result));
  model.cycleConfirmed=false;assert.throws(()=>ns.SwapUI.previewDays(model,result));
+});
+
+test('candidate preview rejects forged cross-shift results',()=>{
+ const {model,ds}=fixture('2026-12-23');
+ const result=ns.SwapEngine.search(model,'SELF',ds[8],[ds[15]])[0].results[0];
+ const forged=JSON.parse(JSON.stringify(result));forged.other.before[ds[15]]='E';
+ assert.throws(()=>ns.SwapUI.previewDays(model,forged));
 });
