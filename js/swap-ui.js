@@ -1,12 +1,23 @@
 (() => {
   'use strict';
   const ns=window.NSSShiftSwapFinder;
+  function previewDays(model,result) {
+    const days=ns.PersonalSchedule.calendar(model,result.employeeId);
+    const changed=[result.wantedDate,result.exchangeDate];
+    if(new Set(changed).size!==2 || !changed.every(date=>days.some(day=>day.date===date))) throw new Error('交換日期不在已確認的四週期內。');
+    return days.map(day=>{
+      if(!changed.includes(day.date)) return {...day};
+      const code=result.other.after[day.date], beforeCode=result.other.before[day.date];
+      if(beforeCode!==day.code || !['work','leave'].includes(ns.Model.classify(code))) throw new Error('交換預覽資料不一致，請重新搜尋。');
+      return {...day,code,kind:ns.Model.classify(code),beforeCode,exchanged:true};
+    });
+  }
   function createController(root,guide) {
     const panel=root.querySelector('#swap-search'),choices=root.querySelector('#exchange-dates');
     const picker=root.querySelector('#exchange-picker'),button=root.querySelector('#search-swaps');
     const mode=root.querySelector('#emergency-mode'),status=root.querySelector('#swap-status');
     const output=root.querySelector('#swap-results'),resultsPanel=root.querySelector('#swap-results-panel');
-    let model=null,id=null,wanted=null,selected=new Set();
+    let model=null,id=null,wanted=null,selected=new Set(),previewSequence=0;
     function clearResults() {output.replaceChildren();resultsPanel.hidden=true;}
     function reset() {
       model=null;id=null;wanted=null;selected.clear();panel.hidden=true;picker.hidden=true;mode.checked=false;button.disabled=true;
@@ -63,6 +74,28 @@
             }
             card.append(changes);
             if(result.warnings.length) {const warnings=root.createElement('ul');warnings.className='swap-warnings';for(const warning of result.warnings)warnings.append(element('li',warning));card.append(warnings);}
+            const toggle=element('button','查看對方四週期班表','preview-toggle');toggle.type='button';
+            const preview=root.createElement('div');preview.className='candidate-preview';preview.hidden=true;
+            preview.id=`candidate-preview-${++previewSequence}`;
+            toggle.setAttribute('aria-expanded','false');toggle.setAttribute('aria-controls',preview.id);
+            toggle.setAttribute('aria-label',`查看 ${result.name}（${result.employeeId}）四週期班表，交換日期 ${result.exchangeDate}`);
+            let rendered=false;
+            toggle.addEventListener('click',()=>{
+              const expanded=toggle.getAttribute('aria-expanded')==='true';
+              if(!expanded && !rendered) {
+                try {
+                  const days=previewDays(model,result);
+                  preview.append(element('p',`${model.cycleStartDate} ～ ${model.cycleEndDate} · 交換後模擬，黃色為交換日期`,'confirmation-help'));
+                  const weeks=root.createElement('div');
+                  ns.PersonalSchedule.renderCalendar(root,weeks,days);preview.append(weeks);
+                } catch {preview.replaceChildren(element('p','無法顯示可靠的班表預覽，請重新搜尋。','confirmation-help'));}
+                rendered=true;
+              }
+              preview.hidden=expanded;toggle.setAttribute('aria-expanded',String(!expanded));
+              toggle.textContent=expanded?'查看對方四週期班表':'收合對方四週期班表';
+              toggle.setAttribute('aria-label',`${expanded?'查看':'收合'} ${result.name}（${result.employeeId}）四週期班表，交換日期 ${result.exchangeDate}`);
+            });
+            card.append(toggle,preview);
             section.append(card);
           }
           if(!group.results.length) {
@@ -80,5 +113,5 @@
     });
     return {reset,setIdentity};
   }
-  ns.SwapUI=Object.freeze({createController});
+  ns.SwapUI=Object.freeze({previewDays,createController});
 })();

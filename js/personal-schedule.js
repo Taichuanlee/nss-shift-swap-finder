@@ -36,6 +36,28 @@
       return {date, code, kind, weekday:weekdays[new Date(`${date}T00:00:00Z`).getUTCDay()]};
     });
   }
+  // Shared four-week rendering: selection is opt-in; candidate previews are read-only.
+  function renderCalendar(root,container,days,{selectWork=false}={}) {
+    container.replaceChildren();
+    for (let week=0;week<4;week++) {
+      const row=root.createElement('ol'); row.className='personal-week'; row.setAttribute('aria-label',`第 ${week+1} 週`);
+      for(const day of days.slice(week*7,week*7+7)) {
+        const cell=root.createElement('li'); cell.className=`personal-day ${day.kind}${day.exchanged ? ' exchanged-day' : ''}`;
+        cell.dataset.date=day.date;
+        const time=root.createElement('time'); time.dateTime=day.date; time.textContent=`${Number(day.date.slice(5,7))}/${Number(day.date.slice(8))}`;
+        const weekday=root.createElement('span'); weekday.className='day-weekday'; weekday.textContent=`週${day.weekday}`;
+        const shift=root.createElement('strong'); shift.textContent=day.exchanged ? `${day.beforeCode} → ${day.code}` : day.code;
+        cell.setAttribute('aria-label',`${day.date} 星期${day.weekday} ${day.code} ${day.kind==='work'?'上班':'休假'}${day.exchanged ? `，交換前 ${day.beforeCode}，交換後 ${day.code}` : ''}`);
+        if(selectWork && day.kind==='work') {
+          const chooseDay=root.createElement('button');chooseDay.type='button';chooseDay.className='want-day';chooseDay.dataset.date=day.date;
+          chooseDay.setAttribute('aria-pressed','false');chooseDay.setAttribute('aria-label',`${day.date} 星期${day.weekday} ${day.code}，選擇想休日期`);
+          chooseDay.append(time,weekday,shift);cell.append(chooseDay);
+        } else cell.append(time,weekday,shift);
+        row.append(cell);
+      }
+      container.append(row);
+    }
+  }
   function createController(root, guide, {onConfirmed=()=>{},onInvalidated=()=>{}}={}) {
     const panel=root.querySelector('#identity-selection'), personal=root.querySelector('#personal-schedule');
     const searchInput=root.querySelector('#employee-search'), results=root.querySelector('#employee-results');
@@ -91,24 +113,7 @@
       root.querySelector('#confirmed-name').textContent=label(employee);
       message.textContent=persisted ? '身分已確認。下次匯入仍會請您重新確認。' : '身分已確認；此瀏覽器無法記住身分，不影響本次查看。';
       root.querySelector('#personal-range').textContent=`${model.cycleStartDate} ～ ${model.cycleEndDate} · 共 28 天`;
-      weeks.replaceChildren();
-      for (let week=0;week<4;week++) {
-        const row=root.createElement('ol'); row.className='personal-week'; row.setAttribute('aria-label',`第 ${week+1} 週`);
-        for(const day of days.slice(week*7,week*7+7)) {
-          const cell=root.createElement('li'); cell.className=`personal-day ${day.kind}`;
-          const time=root.createElement('time'); time.dateTime=day.date; time.textContent=`${Number(day.date.slice(5,7))}/${Number(day.date.slice(8))}`;
-          const weekday=root.createElement('span'); weekday.className='day-weekday'; weekday.textContent=`週${day.weekday}`;
-          const shift=root.createElement('strong'); shift.textContent=day.code;
-          cell.setAttribute('aria-label',`${day.date} 星期${day.weekday} ${day.code} ${day.kind==='work'?'上班':'休假'}`);
-          if(day.kind==='work') {
-            const chooseDay=root.createElement('button');chooseDay.type='button';chooseDay.className='want-day';chooseDay.dataset.date=day.date;
-            chooseDay.setAttribute('aria-pressed','false');chooseDay.setAttribute('aria-label',`${day.date} 星期${day.weekday} ${day.code}，選擇想休日期`);
-            chooseDay.append(time,weekday,shift);cell.append(chooseDay);
-          } else cell.append(time,weekday,shift);
-          row.append(cell);
-        }
-        weeks.append(row);
-      }
+      renderCalendar(root,weeks,days,{selectWork:true});
       personal.hidden=false; onConfirmed(model,confirmedId); guide(personal);
     });
     root.querySelector('#switch-employee').addEventListener('click',()=> {invalidate(); renderSaved(); guide(panel);});
@@ -117,5 +122,5 @@
     });
     return {setSchedule,invalidate};
   }
-  ns.PersonalSchedule=Object.freeze({STORAGE_KEY,available,uniqueEmployee,search,remembered,remember,calendar,createController});
+  ns.PersonalSchedule=Object.freeze({STORAGE_KEY,available,uniqueEmployee,search,remembered,remember,calendar,renderCalendar,createController});
 })();

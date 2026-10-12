@@ -8,7 +8,7 @@ const {chromium} = require('playwright');
 const {pdf, metadataGrid, grid} = require('./fixtures.cjs');
 const XLSX = require('../vendor/sheetjs/xlsx.full.min.js');
 const project = path.resolve(__dirname, '..');
-const artifact = path.join(project, 'dist/pages');
+const artifact = process.env.PAGES_ARTIFACT_DIR ? path.resolve(process.env.PAGES_ARTIFACT_DIR) : path.join(project, 'dist/pages');
 
 test('published artifact imports PDF/XLSX/XLS under a Pages project subpath', async () => {
   assert.ok(fs.existsSync(path.join(artifact, 'index.html')), 'Build dist/pages before this test.');

@@ -266,24 +266,71 @@ test('real browser local parsing, result states, selection reset, no outbound re
   assert.doesNotMatch(await page.locator('#swap-results').textContent(),/連續上班限制|未符合/);
   await page.setViewportSize({width:320,height:740});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+  // v0.6: isolated, accessible, read-only candidate calendars at 320px.
+  async function verifyCandidate(index,employeeRow,exchangeIndex) {
+    const card=page.locator('.swap-candidate').nth(index),toggle=card.locator('.preview-toggle');
+    assert.equal(await toggle.getAttribute('aria-expanded'),'false');
+    const controls=await toggle.getAttribute('aria-controls');
+    assert.equal(await page.locator(`#${controls}`).isVisible(),false);
+    await toggle.focus();await toggle.press('Enter');
+    assert.equal(await toggle.getAttribute('aria-expanded'),'true');
+    assert.equal(await page.locator(`#${controls}`).isVisible(),true);
+    assert.equal(await card.locator('.candidate-preview .personal-week').count(),4);
+    assert.equal(await card.locator('.candidate-preview .want-day').count(),0);
+    const cells=await card.locator('.candidate-preview .personal-day').evaluateAll(els=>els.map(el=>({
+      date:el.dataset.date,code:el.querySelector('strong').textContent,
+      weekday:el.querySelector('.day-weekday').textContent,exchanged:el.classList.contains('exchanged-day')
+    })));
+    assert.equal(cells.length,28);assert.equal(cells.filter(c=>c.exchanged).length,2);
+    for(let i=0;i<28;i++) {
+      assert.equal(cells[i].date,swapDates[i]);
+      assert.equal(cells[i].weekday,`週${['日','一','二','三','四','五','六'][new Date(`${swapDates[i]}T00:00:00Z`).getUTCDay()]}`);
+      const original=employeeRow[i+2];
+      const expected=i===8?`${original} → A`:i===exchangeIndex?`${original} → OF`:original;
+      assert.equal(cells[i].code,expected);assert.equal(cells[i].exchanged,i===8||i===exchangeIndex);
+    }
+    const colors=await card.locator('.exchanged-day').evaluateAll(els=>els.map(el=>getComputedStyle(el).backgroundColor));
+    assert.deepEqual(colors,['rgb(255, 241, 168)','rgb(255, 241, 168)']);
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+    await toggle.press('Space');assert.equal(await toggle.getAttribute('aria-expanded'),'false');
+    assert.equal(await page.locator(`#${controls}`).isVisible(),false);
+    await toggle.click();
+  }
+  assert.equal(await page.locator('.preview-toggle[aria-expanded="false"]').count(),2);
+  const labelsBeforePreview=await page.locator('#swap-results h4').allTextContents();
+  await verifyCandidate(0,swapRows[3],15);
+  assert.equal(await page.locator('.preview-toggle').nth(1).getAttribute('aria-expanded'),'false');
+  await verifyCandidate(1,swapRows[3],20);
+  assert.equal(await page.locator('.preview-toggle').first().getAttribute('aria-expanded'),'true');
+  assert.deepEqual(await page.locator('#swap-results h4').allTextContents(),labelsBeforePreview);
+  assert.equal(new Set(await page.locator('.candidate-preview').evaluateAll(els=>els.map(el=>el.id))).size,2);
   await page.locator('#emergency-mode').check();assert.equal(await page.locator('#swap-results-panel').isVisible(),false);
   await page.locator('#search-swaps').click();await guidedTo('swap-results-panel');
   assert.equal(await page.locator('.swap-candidate').count(),3);
+  assert.equal(await page.locator('.preview-toggle[aria-expanded="false"]').count(),3);
+  await verifyCandidate(0,swapRows[3],15);
+  await verifyCandidate(1,swapRows[4],15);
+  assert.equal(await page.locator('.preview-toggle').first().getAttribute('aria-expanded'),'true');
+
   assert.match(await page.locator('#swap-results').textContent(),/跨班別交換/);
   assert.doesNotMatch(await page.locator('#swap-results').textContent(),/無法計算實際休息時數|受影響區段最多連續上班/);
   assert.equal(await page.locator('#emergency-mode').isChecked(),false);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   await page.locator('#swap-results-panel').screenshot({path:path.join(project,'test-data/swap-mobile-synthetic.png')});
   await page.locator('#search-swaps').click();await guidedTo('swap-results-panel');assert.equal(await page.locator('.swap-candidate').count(),2);
+  assert.equal(await page.locator('.preview-toggle[aria-expanded="false"]').count(),2);
+  await page.locator('.preview-toggle').first().click();
   await page.locator('#switch-employee').click();await guidedTo('identity-selection');
-  assert.equal(await page.locator('#swap-search').isVisible(),false);assert.equal(await page.locator('.swap-candidate').count(),0);
+  assert.equal(await page.locator('#swap-search').isVisible(),false);assert.equal(await page.locator('.swap-candidate').count(),0);assert.equal(await page.locator('.candidate-preview').count(),0);
   await page.locator('#employee-search').fill('SELF');await page.locator('.employee-option').click();await page.locator('#confirm-identity').click();await guidedTo('personal-schedule');
   await page.locator(`.want-day[data-date="${swapDates[8]}"]`).click();await guidedTo('swap-search');
   await page.locator(`#exchange-dates input[value="${swapDates[15]}"]`).check();await page.locator('#search-swaps').click();await guidedTo('swap-results-panel');
-  await page.locator('#cycle-start').fill(swapDates[1]);assert.equal(await page.locator('#swap-search').isVisible(),false);assert.equal(await page.locator('.swap-candidate').count(),0);
+  await page.locator('.preview-toggle').first().click();
+  await page.locator('#cycle-start').fill(swapDates[1]);assert.equal(await page.locator('#swap-search').isVisible(),false);assert.equal(await page.locator('.swap-candidate').count(),0);assert.equal(await page.locator('.candidate-preview').count(),0);
   await page.locator('#confirm-cycle').click();await guidedTo('identity-selection');await page.locator('#use-remembered').click();await page.locator('#confirm-identity').click();await guidedTo('personal-schedule');
   await page.locator(`.want-day[data-date="${swapDates[8]}"]`).click();await guidedTo('swap-search');await page.locator(`#exchange-dates input[value="${swapDates[15]}"]`).check();await page.locator('#search-swaps').click();await guidedTo('swap-results-panel');
-  await choose('replacement.xlsx','application/octet-stream',spreadsheet());assert.equal(await page.locator('#swap-search').isVisible(),false);assert.equal(await page.locator('.swap-candidate').count(),0);
+  await page.locator('.preview-toggle').first().click();
+  await choose('replacement.xlsx','application/octet-stream',spreadsheet());assert.equal(await page.locator('#swap-search').isVisible(),false);assert.equal(await page.locator('.swap-candidate').count(),0);assert.equal(await page.locator('.candidate-preview').count(),0);
   await page.setViewportSize({width:390,height:844});
   // v0.4.1: compact warnings and stable order for actual six-day/multiple risks.
   const riskRows=[['Synthetic schedule'],['ID','Name',...swapDates],

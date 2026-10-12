@@ -56,3 +56,11 @@
 .swap-changes small {display:block;margin:6px 0;color:var(--muted)}
 .swap-warnings {padding-left:20px;line-height:1.7;font-size:13px;color:#805b2d}
 @media(max-width:480px) {.swap-card {padding:16px}#exchange-dates,.swap-changes {grid-template-columns:minmax(0,1fr)}.want-day {min-height:82px;gap:5px;padding:10px 0}.swap-candidate {padding:12px}}
+
+/* Candidate calendars share the personal calendar, with explicit simulation markers. */
+.preview-toggle {display:block;width:100%;min-height:44px;margin-top:16px;padding:10px 12px;border:1px solid var(--border);border-radius:9px;background:#f4faf8;color:var(--teal);font:inherit;font-size:14px;white-space:normal;overflow-wrap:anywhere}
+.candidate-preview {margin-top:12px;min-width:0}
+.candidate-preview .personal-day {justify-content:center;text-align:center}
+.candidate-preview .exchanged-day {background:#fff1a8;border-color:#cda631;color:#57430c}
+.candidate-preview .personal-day strong {max-width:100%;overflow-wrap:anywhere}
+@media(max-width:480px) {.candidate-preview .personal-day strong {font-size:12px}.candidate-preview .personal-day {min-height:84px}.candidate-preview time {font-size:9px;letter-spacing:-.3px;white-space:nowrap}}
