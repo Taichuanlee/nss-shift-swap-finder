@@ -357,6 +357,63 @@ test('real browser local parsing, result states, selection reset, no outbound re
   assert.match(await page.locator('.swap-candidate').nth(1).textContent(),/⚠️ 破碎班/);
   assert.doesNotMatch(await page.locator('.swap-candidate').nth(1).textContent(),/⚠️ 連續上班/);
   await page.setViewportSize({width:390,height:844});
+  // v0.7: memory-only corrections use the same model version for calendar/search.
+  const editRows=[['Synthetic schedule'],['ID','Name',...swapDates],
+    ['SELF','Synthetic Self',...swapDates.map((_,i)=>i===8?'A休':'OF')],
+    ['OTHER','Synthetic Other',...swapDates.map((_,i)=>i===15?'A':'ON')],
+    ['EVENING','Synthetic Evening',...swapDates.map((_,i)=>i===15?'E':'OZ')]];
+  await searchRiskRows(editRows);
+  assert.match(await page.locator('#swap-results h4').textContent(),/Synthetic Other/);
+  await page.locator('.preview-toggle').click();
+  await page.setViewportSize({width:320,height:740});
+  await page.locator('#edit-schedule').click();
+  assert.equal(await page.locator('#swap-results-panel').isVisible(),false);
+  assert.equal(await page.locator('.candidate-preview').count(),0);
+  assert.equal(await page.locator('#swap-search').isVisible(),false);
+  assert.equal(await page.locator('.edit-day').count(),28);
+  assert.equal(await page.locator('#edit-controls').isVisible(),true);
+  assert.deepEqual(await page.locator('#shift-options button').evaluateAll(els=>els.map(el=>el.dataset.shift)),['A','E','N','O']);
+  async function editShift(index,code) {
+    await page.locator(`.edit-day[data-date="${swapDates[index]}"]`).click();
+    await page.locator(`#shift-options button[data-shift="${code}"]`).click();
+  }
+  await editShift(8,'E');
+  assert.match(await page.locator(`.modified-day[data-date="${swapDates[8]}"]`).textContent(),/A → E/);
+  await editShift(15,'A');
+  assert.match(await page.locator(`.modified-day[data-date="${swapDates[15]}"]`).textContent(),/OF → A/);
+  await page.locator(`.edit-day[data-date="${swapDates[15]}"]`).click();await page.locator('#restore-day-shift').click();
+  assert.equal(await page.locator('.modified-day').count(),1);
+  assert.equal(await page.locator(`.personal-day[data-date="${swapDates[15]}"] strong`).textContent(),'OF');
+  await page.locator('#edit-schedule').click();
+  assert.equal(await page.locator('.edit-day').count(),0);
+  await page.locator(`.want-day[data-date="${swapDates[8]}"]`).click();await guidedTo('swap-search');
+  await page.locator(`#exchange-dates input[value="${swapDates[15]}"]`).check();await page.locator('#search-swaps').click();await guidedTo('swap-results-panel');
+  assert.match(await page.locator('#swap-results h4').textContent(),/Synthetic Evening/);
+  await page.locator('.preview-toggle').click();
+  assert.equal(await page.locator(`.candidate-preview .exchanged-day[data-date="${swapDates[8]}"] strong`).textContent(),'OZ → E');
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+  const savedOnly=await page.evaluate(()=>JSON.parse(localStorage.getItem(window.NSSShiftSwapFinder.PersonalSchedule.STORAGE_KEY)));
+  assert.deepEqual(savedOnly,{version:1,id:'SELF'});
+  await page.locator('#edit-schedule').click();await editShift(8,'O');await page.locator('#edit-schedule').click();
+  assert.equal(await page.locator(`.want-day[data-date="${swapDates[8]}"]`).count(),0);
+  await page.locator('#edit-schedule').click();await editShift(15,'A');await page.locator('#restore-all-shifts').click();
+  assert.equal(await page.locator('.modified-day').count(),0);
+  await editShift(8,'E');await page.locator('#edit-schedule').click();
+  await page.locator('#switch-employee').click();await page.locator('#use-remembered').click();await page.locator('#confirm-identity').click();await guidedTo('personal-schedule');
+  assert.equal(await page.locator('.modified-day').count(),0);
+  assert.equal(await page.locator(`.want-day[data-date="${swapDates[8]}"] strong`).textContent(),'A');
+  await page.locator('#edit-schedule').click();await editShift(8,'E');await page.locator('#edit-schedule').click();
+  await searchRiskRows(editRows);assert.equal(await page.locator('.modified-day').count(),0);
+  await page.locator('#edit-schedule').click();await editShift(8,'E');
+  await page.reload();assert.equal(await page.locator('#personal-schedule').isVisible(),false);
+  await page.evaluate(()=>{
+    window.scrollGuides=[];
+    const original=Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView=function(options){window.scrollGuides.push({id:this.id,behavior:options?.behavior});return original.call(this,options);};
+  });
+  await searchRiskRows(editRows);assert.equal(await page.locator('.modified-day').count(),0);
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+  await page.setViewportSize({width:390,height:844});
   // Validation warnings cannot be bypassed by confirming a known typo.
   const unknownRows=reviewRows.map(r=>r.slice());unknownRows[2][12]='OX';
   await choose('unknown-code.pdf','application/pdf',pdf([unknownRows]));await parse();

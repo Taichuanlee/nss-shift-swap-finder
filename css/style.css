@@ -62,3 +62,15 @@
 .candidate-preview .exchanged-day {background:#fff1a8;border-color:#cda631;color:#57430c}
 .candidate-preview .personal-day strong {max-width:100%;overflow-wrap:anywhere}
 @media(max-width:480px) {.candidate-preview .personal-day strong {font-size:12px}.candidate-preview .personal-day {min-height:84px}.candidate-preview time {font-size:9px;letter-spacing:-.3px;white-space:nowrap}}
+
+/* Memory-only personal corrections; selectable dates reuse the same calendar. */
+.edit-day {display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;width:100%;min-height:82px;border:0;background:transparent;color:inherit;padding:10px 1px;border-radius:8px}
+.personal-day:has(.edit-day) {padding:0}
+.personal-day.modified-day {background:#fff6ca;border-color:#d5b753;color:#57430c}
+.correction-note {font-size:10px;overflow-wrap:anywhere;text-align:center;padding:2px;max-width:100%}
+.personal-card.editing {border-color:#c6a94c}
+.shift-editor {padding:16px;border:1px solid var(--border);border-radius:12px;background:#f8fbf8;margin-top:12px;scroll-margin-top:16px}
+.shift-editor strong {display:block;font-size:14px;overflow-wrap:anywhere}
+.shift-options {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:14px 0}
+.shift-options button {min-height:48px;border:1px solid var(--border);border-radius:9px;background:white;color:var(--ink)}
+#personal-weeks {margin-top:16px}

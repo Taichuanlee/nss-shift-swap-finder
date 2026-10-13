@@ -1,4 +1,4 @@
-/* Identity confirmation and read-only calendar; schedule data stays in memory. */
+/* Identity, shared calendar and memory-only personal corrections. */
 (() => {
   'use strict';
   const ns = window.NSSShiftSwapFinder;
@@ -36,23 +36,46 @@
       return {date, code, kind, weekday:weekdays[new Date(`${date}T00:00:00Z`).getUTCDay()]};
     });
   }
+  // Memory-only overlay. Imported cells and other employees are never written.
+  function createCorrections(source,id) {
+    const days=calendar(source,id), allowed=new Set(days.map(day=>day.date)), changes=new Map();
+    const employee=uniqueEmployee(source,id),start=source.cycleStartDate,end=source.cycleEndDate;
+    function active() {if(!available(source) || source.cycleStartDate!==start || source.cycleEndDate!==end) throw new Error('正式四週期已變更，請重新確認身分。');}
+    function effective() {
+      active();
+      return {...source,employees:source.employees.map(e=>e===employee ? {...e,shifts:{...e.shifts,...Object.fromEntries(changes)}} : e)};
+    }
+    function check(date) {active();if(!allowed.has(date)) throw new Error('只能修改本人正式四週期內的日期。');}
+    function set(date,code) {
+      check(date);
+      if(!['A','E','N','O'].includes(code) || !['work','leave'].includes(ns.Model.classify(code))) throw new Error('請選擇 A、E、N 或 O。');
+      if(code===employee.shifts[date]) changes.delete(date); else changes.set(date,code);
+    }
+    function restore(date) {check(date);changes.delete(date);}
+    function reset() {active();changes.clear();}
+    function display() {return calendar(effective(),id).map(day=>({...day,modified:changes.has(day.date),originalCode:employee.shifts[day.date]}));}
+    return Object.freeze({effective,set,restore,reset,display});
+  }
   // Shared four-week rendering: selection is opt-in; candidate previews are read-only.
-  function renderCalendar(root,container,days,{selectWork=false}={}) {
+  function renderCalendar(root,container,days,{selectWork=false,edit=false}={}) {
     container.replaceChildren();
     for (let week=0;week<4;week++) {
       const row=root.createElement('ol'); row.className='personal-week'; row.setAttribute('aria-label',`第 ${week+1} 週`);
       for(const day of days.slice(week*7,week*7+7)) {
-        const cell=root.createElement('li'); cell.className=`personal-day ${day.kind}${day.exchanged ? ' exchanged-day' : ''}`;
+        const cell=root.createElement('li'); cell.className=`personal-day ${day.kind}${day.exchanged ? ' exchanged-day' : ''}${day.modified ? ' modified-day' : ''}`;
         cell.dataset.date=day.date;
         const time=root.createElement('time'); time.dateTime=day.date; time.textContent=`${Number(day.date.slice(5,7))}/${Number(day.date.slice(8))}`;
         const weekday=root.createElement('span'); weekday.className='day-weekday'; weekday.textContent=`週${day.weekday}`;
         const shift=root.createElement('strong'); shift.textContent=day.exchanged ? `${day.beforeCode} → ${day.code}` : day.code;
         cell.setAttribute('aria-label',`${day.date} 星期${day.weekday} ${day.code} ${day.kind==='work'?'上班':'休假'}${day.exchanged ? `，交換前 ${day.beforeCode}，交換後 ${day.code}` : ''}`);
-        if(selectWork && day.kind==='work') {
-          const chooseDay=root.createElement('button');chooseDay.type='button';chooseDay.className='want-day';chooseDay.dataset.date=day.date;
-          chooseDay.setAttribute('aria-pressed','false');chooseDay.setAttribute('aria-label',`${day.date} 星期${day.weekday} ${day.code}，選擇想休日期`);
+        if(edit || (selectWork && day.kind==='work')) {
+          const chooseDay=root.createElement('button');chooseDay.type='button';chooseDay.className=edit?'edit-day':'want-day';chooseDay.dataset.date=day.date;
+          chooseDay.setAttribute('aria-pressed','false');chooseDay.setAttribute('aria-label',`${day.date} 星期${day.weekday} ${day.code}${day.modified ? `，原始 ${day.originalCode}` : ''}，${edit?'修改班別':'選擇想休日期'}`);
           chooseDay.append(time,weekday,shift);cell.append(chooseDay);
         } else cell.append(time,weekday,shift);
+        if(day.modified) {
+          const note=root.createElement('small');note.className='correction-note';note.textContent=`✎ ${day.originalCode} → ${day.code}`;cell.append(note);
+        }
         row.append(cell);
       }
       container.append(row);
@@ -64,11 +87,13 @@
     const selection=root.querySelector('#identity-review'), message=root.querySelector('#identity-status');
     const saved=root.querySelector('#remembered-identity'), picker=root.querySelector('#identity-picker');
     const weeks=root.querySelector('#personal-weeks');
-    let model=null, signature='', selectedId=null, confirmedId=null;
+    let model=null, signature='', selectedId=null, confirmedId=null, corrections=null,editing=false,editDate=null;
+    const editToggle=root.querySelector('#edit-schedule'),editor=root.querySelector('#shift-editor');
     function storage() { try { return window.localStorage; } catch { return null; } }
     function label(employee) { return `${employee.name} · 員工編號：${employee.id}`; }
     function invalidate() {
       onInvalidated();
+      corrections=null;editing=false;editDate=null;editor.hidden=true;editToggle.textContent='編輯班表';editToggle.setAttribute('aria-expanded','false');root.querySelector('#edit-controls').hidden=true;personal.classList.remove('editing');
       selectedId=null; confirmedId=null; selection.hidden=true; personal.hidden=true; weeks.replaceChildren();
       picker.hidden=false; root.querySelector('#confirmed-identity').hidden=true;
       root.querySelector('#confirmed-name').textContent=''; root.querySelector('#identity-review-name').textContent='';
@@ -113,14 +138,49 @@
       root.querySelector('#confirmed-name').textContent=label(employee);
       message.textContent=persisted ? '身分已確認。下次匯入仍會請您重新確認。' : '身分已確認；此瀏覽器無法記住身分，不影響本次查看。';
       root.querySelector('#personal-range').textContent=`${model.cycleStartDate} ～ ${model.cycleEndDate} · 共 28 天`;
-      renderCalendar(root,weeks,days,{selectWork:true});
-      personal.hidden=false; onConfirmed(model,confirmedId); guide(personal);
+      corrections=createCorrections(model,confirmedId);editing=false;editDate=null;editor.hidden=true;
+      renderPersonal();
+      personal.hidden=false; onConfirmed(corrections.effective(),confirmedId); guide(personal);
     });
+    function renderPersonal() {
+      renderCalendar(root,weeks,corrections.display(),{selectWork:!editing,edit:editing});
+      editToggle.textContent=editing?'完成編輯':'編輯班表';editToggle.setAttribute('aria-expanded',String(editing));
+      root.querySelector('#edit-controls').hidden=!editing;
+      root.querySelector('#edit-state').textContent=editing?'編輯模式：點選日期，再選擇班別。':'唯讀模式：點選工作日搜尋換班。';
+      personal.classList.toggle('editing',editing);
+      root.querySelector('#restore-all-shifts').disabled=!corrections.display().some(day=>day.modified);
+    }
+    function updateCorrection(action) {
+      if(!corrections || !editing || !confirmedId) return;
+      try {action();onInvalidated();renderPersonal();editor.hidden=true;editDate=null;}
+      catch {root.querySelector('#edit-state').textContent='無法修改，請確認日期與班別。';}
+    }
+    editToggle.addEventListener('click',()=>{
+      if(!corrections || !confirmedId) return;
+      editing=!editing;editor.hidden=true;editDate=null;onInvalidated();renderPersonal();
+      if(!editing) onConfirmed(corrections.effective(),confirmedId);
+    });
+    weeks.addEventListener('click',event=>{
+      const button=event.target.closest('.edit-day');
+      if(!button || !editing || !corrections) return;
+      editDate=button.dataset.date;
+      const day=corrections.display().find(day=>day.date===editDate);if(!day)return;
+      root.querySelector('#edit-date-label').textContent=`${day.date} · 原始 ${day.originalCode} · 目前 ${day.code}`;
+      root.querySelector('#restore-day-shift').disabled=!day.modified;
+      editor.hidden=false;root.querySelector('#shift-options button').focus({preventScroll:true});
+      editor.scrollIntoView({behavior:'auto',block:'nearest'});
+    });
+    root.querySelector('#shift-options').addEventListener('click',event=>{
+      const option=event.target.closest('button[data-shift]');if(option && editDate)updateCorrection(()=>corrections.set(editDate,option.dataset.shift));
+    });
+    root.querySelector('#restore-day-shift').addEventListener('click',()=>{if(editDate)updateCorrection(()=>corrections.restore(editDate));});
+    root.querySelector('#restore-all-shifts').addEventListener('click',()=>updateCorrection(()=>corrections.reset()));
+    root.querySelector('#cancel-shift-edit').addEventListener('click',()=>{editor.hidden=true;editDate=null;});
     root.querySelector('#switch-employee').addEventListener('click',()=> {invalidate(); renderSaved(); guide(panel);});
     root.querySelector('#forget-identity').addEventListener('click',()=> {
       try {storage()?.removeItem(STORAGE_KEY); saved.hidden=true; message.textContent='已清除這部裝置記住的身分。';} catch {message.textContent='瀏覽器無法清除記住的身分，請檢查瀏覽器儲存設定。';}
     });
     return {setSchedule,invalidate};
   }
-  ns.PersonalSchedule=Object.freeze({STORAGE_KEY,available,uniqueEmployee,search,remembered,remember,calendar,renderCalendar,createController});
+  ns.PersonalSchedule=Object.freeze({STORAGE_KEY,available,uniqueEmployee,search,remembered,remember,calendar,createCorrections,renderCalendar,createController});
 })();

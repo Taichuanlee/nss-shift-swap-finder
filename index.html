@@ -22,7 +22,7 @@
   <main class="page">
     <header class="header">
       <div class="brand-mark" aria-hidden="true">N</div>
-      <span class="version">v0.6.1</span>
+      <span class="version">v0.7</span>
     </header>
     <section class="intro" aria-labelledby="page-title">
       <p class="eyebrow">讓休假安排，多一個可能</p>
@@ -114,8 +114,19 @@
       <h2 id="personal-title">您的四週期班表</h2>
       <p id="personal-range" class="confirmation-help"></p>
       <p class="calendar-legend"><span>● A／E／N 上班</span><span>● O 系列休假</span></p>
+      <button id="edit-schedule" type="button" class="reject-button" aria-expanded="false" aria-controls="edit-controls">編輯班表</button>
+      <p id="edit-state" class="status" role="status" aria-live="polite"></p>
+      <div id="edit-controls" hidden>
+        <p class="confirmation-help">修改僅在本次使用期間有效，重新整理後將消失。這是個人本機修正，不代表醫院正式班表已更新。</p>
+        <button id="restore-all-shifts" type="button" class="reject-button" disabled>還原全部修改</button>
+      </div>
       <div id="personal-weeks"></div>
-      <p class="phase-note">完整顯示正式四週期 28 天，依開始日期排列。點選 A／E／N 工作日，選擇想休日期；班表不會被修改。</p>
+      <div id="shift-editor" class="shift-editor" hidden role="group" aria-labelledby="edit-date-label">
+        <strong id="edit-date-label"></strong>
+        <div id="shift-options" class="shift-options"><button type="button" data-shift="A">A 上班</button><button type="button" data-shift="E">E 上班</button><button type="button" data-shift="N">N 上班</button><button type="button" data-shift="O">O 休假</button></div>
+        <div class="confirmation-actions"><button id="restore-day-shift" type="button" class="reject-button">還原這一天</button><button id="cancel-shift-edit" type="button" class="reject-button">取消</button></div>
+      </div>
+      <p class="phase-note">完整顯示正式四週期 28 天，依開始日期排列。點選 A／E／N 工作日，選擇想休日期。個人修正不會改動原始匯入班表。</p>
     </section>
     <section class="card swap-card" id="swap-search" tabindex="-1" aria-labelledby="swap-title" hidden>
       <h2 id="swap-title">尋找雙向換班同仁</h2>
