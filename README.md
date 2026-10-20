@@ -2,6 +2,43 @@
 
 護理師換班搜尋工具 · v0.7
 
+## V0.8 第一階段：班表發布格式
+
+新增 `js/schedule-publication.js`，只處理記憶體中的匯出與載入，不新增網路請求、資料庫、登入或中央儲存。現有 PDF／Excel 上傳與換班演算法保持原流程。班表通過驗證且完成正式四週期確認後，結果區提供「匯出已確認班表（JSON）」。匯出的是已匯入班表，不包含個人暫時修正。
+
+**匯出檔是含姓名、員工編號與完整班別的明文檔，並非加密檔。僅供管理者私下保存，不可提交 Git、放入 Pages 或公開分享。** 目前沒有管理者身分控管，匯出按鈕是本機工具，任何完成匯入的人都可使用。
+
+發布格式 v1 的頂層欄位固定如下：
+
+| 欄位 | 意義 |
+| --- | --- |
+| `format` | 固定 `nss-shift-swap-finder.schedule` |
+| `schemaVersion` | 整數 `1`；不支援的版本拒絕載入 |
+| `publishedAt` | 匯出時的 UTC ISO 時間，非可信任簽章 |
+| `cycle` | 管理者已確認的 `startDate`、`endDate`，連續 28 天 |
+| `dates` | 全部已匯入、連續且排序的 ISO 日期，包含週期前後日期 |
+| `employees` | 依原順序保存 `{id, name, shifts}`；`shifts` 以日期為鍵，值為正規化班別 |
+
+保留原員工順序、全部計算日期與每個休假代碼，例如 `OF` 不改為 `O`。不保存 PDF／Excel 原始檔、原始儲存格、非每日欄、診斷、警告或日期修正追溯。發布格式不是原始文件的封存格式。來源本來就缺少的週期前後日期不會被推測或補齊，既有邊界判斷仍有相同限制。
+
+瀏覽器程式介面（均不寫入儲存空間）：
+
+```js
+const publication = NSSShiftSwapFinder.SchedulePublication;
+const payload = publication.create(confirmedModel); // 獨立的發布物件
+const json = publication.serialize(confirmedModel); // JSON 字串
+const loadedModel = publication.deserialize(json);  // JSON → 重新驗證後的模型
+const alsoLoaded = publication.load(payload);       // 物件 → 重新驗證後的模型
+```
+
+匯出會在獨立副本重新驗證，不修改當前班表；未確認週期、有錯誤或尚待處理日期建議時拒絕匯出。載入嚴格檢查欄位、版本、身分、日期、班別及完整覆蓋，不接受外部 `validation`／`readyForSearch` 旗標；再呼叫既有 `Validator.validate()`，只有通過才回傳可搜尋模型。無效輸入拋出不含員工內容的錯誤。JSON 字串載入上限為 25 Mi 字元，並非完整的資源耗盡防護。
+
+載入模型的 `sourceType`／`cycleSource` 為 `publication`，其週期確認來自發布資料，不要求一般使用者重做確認。因沒有來源表格的 WeakMap 證據，不能用它重做原始日期修正；`importConfirmation` 初始化為無待處理建議。重新驗證只能證明結構與規則通過，不能驗證發布者或資料真偽。
+
+第二階段可在受控取得資料後呼叫 `deserialize()`，成功才將模型交給個人班表與搜尋控制器；新增中央載入狀態、版本切換、舊搜尋清除及失敗時本機上傳備援。現有 `app.js` 畫面仍按 PDF／Excel 匯入設計，第二階段須加入中央來源呈現與載入入口，不能只把 JSON 當成 Excel 選檔。`schemaVersion` 表示格式版本；未來班表修訂識別碼應透過明確版本升級加入，`publishedAt` 不作唯一修訂識別碼。本階段沒有取得遠端資料或公開發布 JSON。
+
+合成資料測試：`node --test tests/schedule-publication.test.cjs`。涵蓋完整日期與休假代碼保留、兩種解析器接入、搜尋結果往返一致、週期外區段、錯誤資料拒絕及來源不變性。
+
 沿用既有 PDF／Excel 解析與首頁設計，加入通用日期推斷、安全自動修正及正式四週期確認。班表與匯入確認紀錄只保留於瀏覽器記憶體；明確確認身分後，只將該員工 ID 記住於這部裝置的 localStorage。新增本機雙向換班搜尋，只模擬交換，不修改班表或聯絡同仁。
 
 ## Mac 本機使用

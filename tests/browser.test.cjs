@@ -150,6 +150,7 @@ test('real browser local parsing, result states, selection reset, no outbound re
     assert.equal(await page.locator('#cycle-start').inputValue(),'2026-11-09');
     assert.equal(await page.locator('#cycle-end').textContent(),'2026-12-06');
     assert.match(await page.locator('#result-state').textContent(),/尚未確認/);
+    assert.equal(await page.locator('#export-publication').isVisible(),false);
     assert.doesNotMatch(await page.locator('#result-issues').textContent(),/日期順序異常|日期有缺漏/);
     await page.locator('#cycle-start').fill('2026-11-10');
     assert.equal(await page.locator('#confirm-cycle').isDisabled(),true);
@@ -160,8 +161,20 @@ test('real browser local parsing, result states, selection reset, no outbound re
     assert.match(await page.locator('#result-state').textContent(),/匯入完成/);
     assert.deepEqual(await progress(),['completed','completed','completed','completed']);
     await guidedTo('identity-selection');
+    assert.equal(await page.locator('#export-publication').isVisible(),true);
+    const downloadReady=page.waitForEvent('download');
+    await page.locator('#export-publication').click();
+    const download=await downloadReady;
+    assert.equal(download.suggestedFilename(),'nss-schedule-2026-11-04.json');
+    const chunks=[];for await(const chunk of await download.createReadStream())chunks.push(chunk);
+    const publicationText=Buffer.concat(chunks).toString('utf8');
+    const publication=JSON.parse(publicationText);
+    assert.equal(publication.schemaVersion,1);
+    assert.equal(publication.dates.length,33);
+    assert.equal(await page.evaluate(text=>NSSShiftSwapFinder.SchedulePublication.deserialize(text).validation.readyForSearch,publicationText),true);
     const guidesAfterConfirm=await page.evaluate(()=>window.scrollGuides.length);
     await page.locator('#cycle-start').fill('2026-11-09');
+    assert.equal(await page.locator('#export-publication').isVisible(),false);
     assert.match(await page.locator('#result-state').textContent(),/尚未確認/);
     assert.deepEqual(await progress(),['completed','completed','current','pending']);
     assert.equal(await page.evaluate(()=>window.scrollGuides.length),guidesAfterConfirm);

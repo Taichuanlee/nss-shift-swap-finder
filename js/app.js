@@ -42,6 +42,23 @@
     const cycleEnd = root.querySelector('#cycle-end');
     const cycleFields = root.querySelector('#cycle-fields');
     const confirmCycle = root.querySelector('#confirm-cycle');
+    const exportPublication = root.querySelector('#export-publication');
+    exportPublication.addEventListener('click', () => {
+      if (!result) return;
+      let url;
+      try {
+        const text = ns.SchedulePublication.serialize(result);
+        url = URL.createObjectURL(new Blob([text], {type:'application/json'}));
+        const link = root.createElement('a');
+        link.href = url;
+        link.download = `nss-schedule-${result.cycleStartDate}.json`;
+        root.body.append(link); link.click(); link.remove();
+      } catch {
+        announce('無法匯出，請確認班表驗證與正式四週期確認已完成。',true);
+      } finally {
+        if (url) window.setTimeout(() => URL.revokeObjectURL(url),1000);
+      }
+    });
     const progressSteps = Array.from(root.querySelectorAll('#import-progress li'));
     const issueDetails = root.querySelector('#issue-details');
     const swaps = ns.SwapUI.createController(root, guideTo);
@@ -94,6 +111,8 @@
       renderConfirmation(model);
       resultPanel.hidden = false;
       personal.setSchedule(model);
+      exportPublication.hidden = !model.validation.readyForSearch;
+      root.querySelector('#publication-help').hidden = !model.validation.readyForSearch;
       const complete = model.validation.completeEmployeeCount;
       const stats = [
         ['檔案類型', model.sourceType === 'pdf' ? 'PDF' : 'Excel'],

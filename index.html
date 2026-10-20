@@ -13,6 +13,7 @@
   <script src="js/pdf-parser.js" defer></script>
   <script src="js/excel-parser.js" defer></script>
   <script src="js/import-confirmation.js" defer></script>
+  <script src="js/schedule-publication.js" defer></script>
   <script src="js/personal-schedule.js" defer></script>
   <script src="js/swap-engine.js" defer></script>
   <script src="js/swap-ui.js" defer></script>
@@ -92,6 +93,8 @@
       <h3 class="result-step-title">3. 查看匯入結果</h3>
       <p id="result-state" class="status"></p>
       <dl id="result-summary" class="result-summary"></dl>
+      <button id="export-publication" type="button" class="confirm-button" hidden>匯出已確認班表（JSON）</button>
+      <p id="publication-help" hidden>匯出檔含完整員工班表，僅供管理者妥善保存，請勿放到公開網站或 Repository。不包含本人的暫時班別修正。</p>
       <p class="phase-note">只有日期、班別與正式四週期確認全部通過，才完成匯入確認。確認身分後才能搜尋換班。</p>
       <details id="issue-details" tabindex="-1"><summary>查看錯誤與警告</summary><ul id="result-issues" class="result-issues"></ul></details>
     </section>
