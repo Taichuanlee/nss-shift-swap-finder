@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-Hant">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NSS SSF V0.8 — 獨立合成資料原型</title>
+<script src="/app.js" defer></script>
+<main>
+  <h1>中央班表技術驗證</h1>
+  <p>僅限合成測試資料。此頁與正式 SSF、GitHub Pages 分離。</p>
+  <p id="status" role="status">正在檢查登入狀態…</p>
+  <form id="login">
+    <label for="code">測試共用存取碼</label>
+    <input id="code" type="password" autocomplete="off" required maxlength="128">
+    <button type="submit">登入</button>
+  </form>
+  <section id="authenticated" hidden>
+    <p>登入到期時間：<time id="expiry"></time></p>
+    <button id="reload" type="button">重新載入班表</button>
+    <button id="logout" type="button">登出</button>
+    <p id="summary"></p>
+    <details><summary>查看合成 JSON</summary><pre id="schedule"></pre></details>
+    <h2>KV 更新觀測</h2>
+    <p>將 KV 的 schedule:active 改為 synthetic-b.json 後，貼上 synthetic-manifest.json 中 B 的 SHA-256。每 10 秒取樣，最多 20 分鐘；不代表全球同步上限。</p>
+    <label for="expected">預期 SHA-256</label><input id="expected" maxlength="64" size="40">
+    <button id="observe" type="button">開始觀測</button>
+    <button id="stop" type="button">停止</button>
+    <p id="observation-status" role="status"></p>
+    <pre id="observations"></pre>
+  </section>
+</main>
+</html>

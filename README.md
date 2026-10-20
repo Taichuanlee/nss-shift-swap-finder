@@ -4,6 +4,10 @@
 
 ## V0.8 第一階段：班表發布格式
 
+另有獨立的 [Cloudflare V0.8 合成資料技術原型](prototypes/cloudflare-v08/README.md)，用於本機 HTTPS、HttpOnly Cookie 與 KV 介面驗證；不接入此正式頁面，也不自動部署。
+
+[V0.8 Phase 3](prototypes/cloudflare-v08/PHASE3.md) 另行建置同源中央班表＋完整 SSF，保留 PDF／Excel 備援；根目錄首頁仍維持 GitHub Pages 本機匯入流程。
+
 新增 `js/schedule-publication.js`，只處理記憶體中的匯出與載入，不新增網路請求、資料庫、登入或中央儲存。現有 PDF／Excel 上傳與換班演算法保持原流程。班表通過驗證且完成正式四週期確認後，結果區提供「匯出已確認班表（JSON）」。匯出的是已匯入班表，不包含個人暫時修正。
 
 **匯出檔是含姓名、員工編號與完整班別的明文檔，並非加密檔。僅供管理者私下保存，不可提交 Git、放入 Pages 或公開分享。** 目前沒有管理者身分控管，匯出按鈕是本機工具，任何完成匯入的人都可使用。

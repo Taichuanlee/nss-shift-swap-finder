@@ -1,0 +1,23 @@
+    <section class="card central-card" aria-labelledby="central-title">
+      <h2 id="central-title">選擇班表來源</h2>
+      <fieldset class="schedule-source-options"><legend>班表來源</legend>
+        <label><input type="radio" name="schedule-source" id="source-unit" value="central" checked>單位班表</label>
+        <label><input type="radio" name="schedule-source" id="source-upload" value="manual">自行上傳</label>
+      </fieldset>
+      <div id="unit-schedule-controls">
+      <p class="confirmation-help">登入後載入管理者已確認的班表，再選擇自己開始搜尋。載入或切換來源會清除目前的身分確認、個人修正與搜尋結果。</p>
+      <form id="central-login">
+        <label for="central-code">單位共用存取碼</label>
+        <input id="central-code" type="password" required maxlength="128" autocomplete="off">
+        <button class="confirm-button" type="submit">登入並載入</button>
+      </form>
+      <div class="confirmation-actions">
+        <button id="central-load" class="reject-button" type="button">載入／更新單位班表</button>
+        <button id="central-logout" class="reject-button" type="button" hidden>登出單位班表</button>
+      </div>
+      <p id="central-session" class="confirmation-help"></p>
+      <p id="central-status" class="status" role="status" aria-live="polite">正在檢查單位班表登入狀態…</p>
+      </div>
+      <p id="schedule-source" class="source-label" role="status">目前來源：尚未載入。</p>
+      <p class="confirmation-help">無法載入單位班表時，可切換「自行上傳」，選擇 PDF／Excel。檔案只在您的裝置上處理。</p>
+    </section>

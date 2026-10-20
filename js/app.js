@@ -31,6 +31,7 @@
     let dragDepth = 0;
     let generation = 0;
     let result = null;
+    let source = 'manual';
     let guidanceRevision = 0;
     const resultPanel = root.querySelector('#parse-result');
     const resultSummary = root.querySelector('#result-summary');
@@ -63,6 +64,10 @@
     const issueDetails = root.querySelector('#issue-details');
     const swaps = ns.SwapUI.createController(root, guideTo);
     const personal = ns.PersonalSchedule.createController(root, guideTo, {onConfirmed:swaps.setIdentity,onInvalidated:swaps.reset});
+    function sourceLabel(text) {
+      const label = root.querySelector('#schedule-source');
+      if (label) label.textContent = text;
+    }
     function setProgress(current, complete = false, currentLabel = '目前階段') {
       progressSteps.forEach((step,index) => {
         const state = complete || index < current ? 'completed' : index === current ? 'current' : 'pending';
@@ -81,7 +86,7 @@
       // Let the result card and the button settle before scrolling. Fast Excel
       // parsing can otherwise race the browser's scroll anchoring after a click.
       window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
-        if (token !== generation || revision !== guidanceRevision || resultPanel.hidden || target.hidden) return;
+        if (token !== generation || revision !== guidanceRevision || !result || target.hidden) return;
         // Focus the section, not the date input: do not open a mobile keyboard.
         target.focus({preventScroll:true});
         const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -108,14 +113,23 @@
       model = Services.importConfirmation.initialize(model);
       result = model;
       resultSummary.replaceChildren(); issues.replaceChildren();
+      if (source === 'central') {
+        // Publication adapter already verified dates and the confirmed cycle.
+        // Keep import-only diagnostics out of the unit schedule flow.
+        resultPanel.hidden = true;
+        personal.setSchedule(model);
+        return;
+      }
       renderConfirmation(model);
       resultPanel.hidden = false;
       personal.setSchedule(model);
-      exportPublication.hidden = !model.validation.readyForSearch;
-      root.querySelector('#publication-help').hidden = !model.validation.readyForSearch;
+      exportPublication.hidden = source === 'central' || !model.validation.readyForSearch;
+      root.querySelector('#publication-help').hidden = exportPublication.hidden;
+      const formatLabel = source === 'central' ? '單位班表' : model.sourceType === 'pdf' ? 'PDF' : 'Excel';
+      if (source === 'manual') sourceLabel(`目前來源：自行上傳 ${formatLabel}（僅在本機處理）。`);
       const complete = model.validation.completeEmployeeCount;
       const stats = [
-        ['檔案類型', model.sourceType === 'pdf' ? 'PDF' : 'Excel'],
+        ['檔案類型', formatLabel],
         ['員工總人數', model.employees.length],
         ['可辨識員工人數', model.employees.filter(e => e.identityResolved).length],
         ['資料異常員工人數', model.employees.length - complete],
@@ -131,7 +145,7 @@
         resultSummary.append(dt, dd);
       }
       const state = model.validation.basicValidationPassed ? '基礎資料驗證通過' : model.employees.length && model.scheduleDates.length ? '部分資料解析成功／存在待確認問題' : '未取得可靠班表資料';
-      root.querySelector('#result-state').textContent = `檔案已讀取 · ${state} · ${model.cycleConfirmed ? '正式四週期已確認' : '尚未確認正式四週期'}${model.validation.readyForSearch ? ' · 匯入完成' : ''}`;
+      root.querySelector('#result-state').textContent = `${source === 'central' ? '單位班表已載入' : '檔案已讀取'} · ${state} · ${model.cycleConfirmed ? '正式四週期已確認' : '尚未確認正式四週期'}${model.validation.readyForSearch ? ' · 匯入完成' : ''}`;
       for (const item of [...model.errors, ...model.warnings]) {
         const li = root.createElement('li');
         const place = item.source?.page ? `第 ${item.source.page} 頁${item.source.y !== undefined ? `，y=${Math.round(item.source.y)}` : ''}` : item.source?.sheet ? `工作表 ${item.source.sheet} ${item.source.cell || ''}` : '';
@@ -201,20 +215,20 @@
       root.querySelector('#date-review-state').textContent = dateErrors.length ?
         (suggestions.some(s => !Services.importConfirmation.resolved(s)) ? '日期需要您確認。請先處理以下建議。' : '無法安全推斷日期或確認欄位對應，請核對原班表及下方錯誤；不能完成匯入。') : `${automaticCount ? `已自動修正 ${automaticCount} 個日期標題。` : ''}日期檢查通過。`;
       const pending = suggestions.some(s => !Services.importConfirmation.resolved(s));
-      cycleFields.disabled = pending || !model.validation.basicValidationPassed;
-      root.querySelector('#display-range').textContent = `${model.sourceType === 'pdf' ? 'PDF' : 'Excel'} 已辨識顯示範圍：${model.scheduleStartDate || '未辨識'} ～ ${model.scheduleEndDate || '未辨識'}（${model.scheduleDates.length} 天）。${pending ? '日期修正前，此範圍可能有誤。' : ''}`;
-      cycleStart.value = model.cycleSource === 'user' ? (model.cycleStartDate || '') : (model.cycleCandidates[0]?.startDate || '');
+      cycleFields.disabled = source === 'central' || pending || !model.validation.basicValidationPassed;
+      root.querySelector('#display-range').textContent = `${source === 'central' ? '單位班表' : model.sourceType === 'pdf' ? 'PDF' : 'Excel'} 已辨識顯示範圍：${model.scheduleStartDate || '未辨識'} ～ ${model.scheduleEndDate || '未辨識'}（${model.scheduleDates.length} 天）。${pending ? '日期修正前，此範圍可能有誤。' : ''}`;
+      cycleStart.value = model.cycleSource === 'user' || source === 'central' ? (model.cycleStartDate || '') : (model.cycleCandidates[0]?.startDate || '');
       cycleEnd.textContent = Services.importConfirmation.addDays(cycleStart.value,27) || '請選擇有效開始日期';
       // A displayed suggestion never sets cycleConfirmed or makes the model ready.
       const end = cycleEnd.textContent;
       const covered = Array.from({length:28}, (_,i) => Services.importConfirmation.addDays(cycleStart.value,i)).every(d => model.scheduleDates.includes(d));
       confirmCycle.disabled = cycleFields.disabled || !covered || model.cycleConfirmed;
-      root.querySelector('#cycle-state').textContent = cycleFields.disabled ? '請先解決日期及班別問題，再確認正式四週期。' : model.cycleConfirmed ?
+      root.querySelector('#cycle-state').textContent = source === 'central' ? `管理者已確認 ${model.cycleStartDate} ～ ${model.cycleEndDate}，共 28 天；單位班表週期在此唯讀。` : cycleFields.disabled ? '請先解決日期及班別問題，再確認正式四週期。' : model.cycleConfirmed ?
         `已確認 ${model.cycleStartDate} ～ ${model.cycleEndDate}，共 28 天。修改開始日期後需要再次確認。` : covered ?
         `建議 ${cycleStart.value} ～ ${end}，共 28 天。請核對後按下確認。` : '這個四週期超出班表或有缺漏日期，請調整開始日期。';
     }
     cycleStart.addEventListener('input', () => {
-      if (!result) return;
+      if (!result || source === 'central') return;
       guidanceRevision++;
       personal.invalidate();
       const value = cycleStart.value;
@@ -224,7 +238,7 @@
       if (!value) { cycleStart.value = ''; cycleEnd.textContent = '請選擇有效開始日期'; confirmCycle.disabled = true; }
     });
     confirmCycle.addEventListener('click', () => {
-      if (!result) return;
+      if (!result || source === 'central') return;
       guidanceRevision++;
       result = Services.importConfirmation.setCycleStart(result, cycleStart.value);
       Services.importConfirmation.confirmCycle(result);
@@ -240,6 +254,8 @@
 
     function reset() {
       clearResult();
+      source = 'manual';
+      sourceLabel('目前來源：自行上傳（僅在本機處理），尚未匯入。');
       selectedFile = null;
       input.value = '';
       selected.hidden = true;
@@ -250,6 +266,7 @@
     }
 
     function selectFiles(files) {
+      root.dispatchEvent(new CustomEvent('nss:manual-source'));
       reset();
       if (files.length !== 1) {
         announce('請一次選擇一個 PDF 或 Excel 班表檔案。', true);
@@ -275,6 +292,7 @@
       if (input.files.length) selectFiles(Array.from(input.files));
     });
     root.querySelector('#remove-file').addEventListener('click', () => {
+      root.dispatchEvent(new CustomEvent('nss:manual-source'));
       reset();
       announce('已移除檔案，您可以重新選擇班表。');
       input.focus();
@@ -347,9 +365,28 @@
       setProgress(1);
       announce('已切換工作表，請重新開始解析。');
     });
+    // Optional central source uses the same model, identity and swap controllers.
+    // GitHub Pages does not load the central UI or make API requests.
+    return Object.freeze({
+      getSource: () => source,
+      prepareManual() { reset(); },
+      prepareCentral() {
+        reset(); source = 'central'; sourceLabel('目前來源：單位班表，正在載入；尚無可搜尋資料。');
+      },
+      clearCentral() {
+        if (source !== 'central') return;
+        reset(); source = 'central'; sourceLabel('目前來源：單位班表，尚未載入或已失效。');
+      },
+      acceptCentral(model, metadata) {
+        if (source !== 'central' || model.sourceType !== 'publication' || !model.validation.readyForSearch) throw new Error('單位班表狀態無效。');
+        sourceLabel(`目前來源：單位班表 · 版本 ${metadata.revision} · 發布 ${metadata.publishedAt}`);
+        showResult(model);
+        guideTo(root.querySelector('#identity-selection'));
+      },
+    });
   }
 
   // Stable namespace for future NSS integration and separately loaded services.
   Object.assign(ns, {version: '0.4.1', FileFormat, Services});
-  createImportController(document);
+  ns.ImportController = createImportController(document);
 })();
