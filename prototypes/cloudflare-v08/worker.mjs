@@ -46,14 +46,77 @@ async function session(request,env,now) {
     value.createdAt>now||value.expiresAt<=now||value.expiresAt-value.createdAt>604800000)return null;
   return {key,expiresAt:value.expiresAt};
 }
+// Admin is deliberately separate from nurse sessions. No publishing route exists.
+const ADMIN_COOKIE='__Host-nss-ssf-admin';
+const adminCookie=(value,age)=>`${ADMIN_COOKIE}=${value}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${age}`;
+function adminSettings(env) {
+  const ttl=Number(env.ADMIN_SESSION_TTL_SECONDS ?? 3600);
+  if(!Number.isInteger(ttl)||ttl<1||ttl>3600||!env.SCHEDULE_KV||
+    !/^[0-9a-f]{64}$/.test(env.ADMIN_ACCESS_CODE_SHA256||'')||
+    env.ADMIN_ACCESS_CODE_SHA256===env.ACCESS_CODE_SHA256||!env.ADMIN_LOGIN_LIMITER?.limit)throw new Error('admin_configuration');
+  return {ttl};
+}
+async function adminSession(request,env,now) {
+  const entries=(request.headers.get('Cookie')||'').split(';').map(s=>s.trim()).filter(s=>s.startsWith(`${ADMIN_COOKIE}=`));
+  if(entries.length!==1)return null;
+  const token=entries[0].slice(ADMIN_COOKIE.length+1);if(!/^[0-9a-f]{64}$/.test(token))return null;
+  const key=`admin-session:${await digest(token)}`,raw=await env.SCHEDULE_KV.get(key);
+  let value;try {value=JSON.parse(raw);}catch{return null;}
+  if(value?.role!=='admin'||value.version!==1||!Number.isSafeInteger(value.createdAt)||!Number.isSafeInteger(value.expiresAt)||
+    value.createdAt>now||value.expiresAt<=now||value.expiresAt<=value.createdAt||value.expiresAt-value.createdAt>3600000)return null;
+  return {key,expiresAt:value.expiresAt};
+}
+async function adminAPI(request,env,url,now) {
+  const expected=url.pathname==='/api/admin/session'?'GET':'POST';
+  if(request.method!==expected)return response({error:'method_not_allowed'},405,{Allow:expected});
+  if((request.headers.has('Origin')&&request.headers.get('Origin')!==url.origin)||request.headers.get('Sec-Fetch-Site')==='cross-site'||
+    (expected==='POST'&&request.headers.get('Origin')!==url.origin))return response({error:'origin_rejected'},403);
+  const {ttl}=adminSettings(env);
+  if(url.pathname==='/api/admin/login') {
+    // Platform limiter, never KV counters or an isolate-local fallback. Both IP and
+    // shared account keys are bounded; Cloudflare limits remain approximate/per-colo.
+    for(const key of [`admin-ip:${request.headers.get('CF-Connecting-IP')||'local'}`,'admin-account']) {
+      if(!(await env.ADMIN_LOGIN_LIMITER.limit({key})).success)return response({error:'too_many_attempts'},429,{'Retry-After':'60'});
+    }
+    if(request.headers.get('Content-Type')?.split(';')[0]!=='application/json')return response({error:'json_required'},415);
+    let body;try {body=await readBody(request,1024);}catch{return response({error:'invalid_request'},400);}
+    if(typeof body?.code!=='string'||body.code.length<32||body.code.length>128)return response({error:'invalid_code'},401);
+    const actual=await digest(body.code);let difference=0;
+    for(let i=0;i<64;i++)difference|=actual.charCodeAt(i)^env.ADMIN_ACCESS_CODE_SHA256.charCodeAt(i);
+    if(difference)return response({error:'invalid_code'},401);
+    // Rotate an existing admin session on login.
+    const previous=await adminSession(request,env,now);if(previous)await env.SCHEDULE_KV.delete(previous.key);
+    const token=hex(crypto.getRandomValues(new Uint8Array(32))),expiresAt=now+ttl*1000;
+    await env.SCHEDULE_KV.put(`admin-session:${await digest(token)}`,JSON.stringify({version:1,role:'admin',createdAt:now,expiresAt}),{expirationTtl:Math.max(60,ttl)});
+    return response({authenticated:true,expiresAt:new Date(expiresAt).toISOString()},200,{'Set-Cookie':adminCookie(token,ttl)});
+  }
+  const active=await adminSession(request,env,now);
+  if(url.pathname==='/api/admin/logout') {
+    if(active)await env.SCHEDULE_KV.delete(active.key);
+    return response({authenticated:false},200,{'Set-Cookie':adminCookie('',0)});
+  }
+  if(!active)return response({error:'unauthorized'},401,{'Set-Cookie':adminCookie('',0)});
+  return response({authenticated:true,expiresAt:new Date(active.expiresAt).toISOString()});
+}
 async function handle(request,env) {
   const url=new URL(request.url),now=Date.now();
   if(url.protocol!=='https:')return response({error:'https_required'},400);
+  if(['/api/admin/login','/api/admin/logout','/api/admin/session'].includes(url.pathname))return adminAPI(request,env,url,now);
+  if(url.pathname.startsWith('/api/admin/'))return response({error:'not_found'},404);
+  const adminPage=['/admin','/admin/','/admin.html'].includes(url.pathname);
+  const loginPage=['/admin/login','/admin-login.html'].includes(url.pathname);
+  if(adminPage) {
+    adminSettings(env);
+    if(!await adminSession(request,env,now))return new Response(null,{status:303,headers:{Location:'/admin/login','Cache-Control':'no-store'}});
+  }
   if(SSF_PATHS.size && !url.pathname.startsWith('/api/')) {
     if(!['GET','HEAD'].includes(request.method))return response({error:'method_not_allowed'},405,{Allow:'GET, HEAD'});
     if(!SSF_PATHS.has(url.pathname))return response({error:'not_found'},404);
     if(!env.ASSETS)return response({error:'assets_not_configured'},503);
-    const asset=await env.ASSETS.fetch(request);
+    const assetURL=new URL(request.url);
+    if(url.pathname==='/')assetURL.pathname='/index.html';
+    if(adminPage)assetURL.pathname='/admin.html';else if(loginPage)assetURL.pathname='/admin-login.html';
+    const asset=await env.ASSETS.fetch(new Request(assetURL,request));
     const headers=new Headers(asset.headers);
     headers.set('X-Content-Type-Options','nosniff');headers.set('Referrer-Policy','no-referrer');
     if(asset.headers.get('Content-Type')?.includes('text/html')) {
