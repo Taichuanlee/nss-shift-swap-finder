@@ -11,7 +11,7 @@ const {chromium}=createRequire(import.meta.url)('playwright');
 test('same-origin HTTPS login, HttpOnly persistence across browser restart, expiry and logout',async()=>{
   const {worker,a,b}=await prepare(),kv=new MemoryKV();await kv.put('schedule:active',a);
   const code=randomBytes(24).toString('base64url');
-  const env={SCHEDULE_KV:kv,ACCESS_CODE_SHA256:createHash('sha256').update(code).digest('hex'),SESSION_TTL_SECONDS:3600};
+  const env={SCHEDULE_KV:kv,LOGIN_LIMITER:{limit:async()=>({success:true})},ACCESS_CODE_SHA256:createHash('sha256').update(code).digest('hex'),SESSION_TTL_SECONDS:3600};
   const server=await startLocal(env,worker),profile=await mkdtemp(path.join(os.tmpdir(),'nss-v08-browser-'));
   const options={headless:true,executablePath:process.env.CHROME_PATH||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     ignoreHTTPSErrors:true,viewport:{width:390,height:844}};

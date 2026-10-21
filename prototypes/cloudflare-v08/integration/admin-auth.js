@@ -51,5 +51,5 @@
   }
   window.addEventListener('pageshow',event=>{if(event.persisted)recheck();});
   document.addEventListener('visibilitychange',()=>{if(document.hidden)clear('頁面已暫停，預覽已清除。');else recheck();});
-  window.NSSAdminAuth=Object.freeze({ready,isActive:()=>active&&Date.now()<expiresAt});
+  window.NSSAdminAuth=Object.freeze({ready,isActive:()=>active&&Date.now()<expiresAt,expire:()=>clear('登入已到期或失效，請重新登入。')});
 })();

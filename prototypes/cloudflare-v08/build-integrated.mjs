@@ -54,7 +54,8 @@ export async function buildIntegrated() {
   await writeFile(path.join(output,'wrangler.jsonc'),JSON.stringify({name:'nss-ssf-v08-test',main:'worker.mjs',
     compatibility_date:'2026-10-20',workers_dev:true,keep_vars:true,
     assets:{directory:'./public',binding:'ASSETS',run_worker_first:true,html_handling:'none'},
-    ratelimits:[{name:'ADMIN_LOGIN_LIMITER',namespace_id:'8809',simple:{limit:5,period:60}}],
+    vars:{SYNTHETIC_ONLY:'true'},
+    ratelimits:[{name:'LOGIN_LIMITER',namespace_id:'8808',simple:{limit:5,period:60}},{name:'ADMIN_LOGIN_LIMITER',namespace_id:'8809',simple:{limit:5,period:60}}],
     kv_namespaces:[{binding:'SCHEDULE_KV',id:'REPLACE_WITH_EXISTING_TEST_NAMESPACE_ID'}]},null,2));
   await writeFile(path.join(output,'asset-inventory.json'),JSON.stringify(inventory.sort(),null,2));
   return {output,assets,inventory};

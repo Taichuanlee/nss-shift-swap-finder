@@ -7,6 +7,14 @@ import {execFileSync} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 import {build, directory} from './build.mjs';
 
+// Local test double only: not a distributed security control.
+export class MemoryLimiter {
+  constructor(limit=5){this.maximum=limit;this.values=new Map();}
+  async limit({key}) {
+    const now=Date.now(),old=this.values.get(key),value=old&&old.until>now?old:{count:0,until:now+60000};
+    value.count++;this.values.set(key,value);return {success:value.count<=this.maximum};
+  }
+}
 export class MemoryKV {
   constructor() {this.values=new Map();this.reads=[];this.writes=[];this.fail=false;this.staleSchedule=null;}
   async get(key,options) {
@@ -37,7 +45,7 @@ export async function startLocal(env,worker) {
   const server=https.createServer({key:await readFile(key),cert:await readFile(cert)},async(req,res)=>{
     try {
       const buffers=[];let length=0;
-      for await(const chunk of req) {length+=chunk.length;if(length>2048){res.writeHead(413).end();return;}buffers.push(chunk);}
+      for await(const chunk of req) {length+=chunk.length;if(length>256*1024){res.writeHead(413).end();return;}buffers.push(chunk);}
       const request=new Request(`https://localhost:${server.address().port}${req.url}`,{method:req.method,
         headers:req.headers,...(buffers.length?{body:Buffer.concat(buffers)}:{})});
       const response=await worker.fetch(request,env);

@@ -10,6 +10,8 @@
 
 [V0.8 Phase 4A](prototypes/cloudflare-v08/PHASE4A.md) 新增獨立且受後端驗證的管理者匯入／唯讀預覽頁；僅本機開發、沒有發布 API，正式啟用前仍須完成平台防暴力登入驗證。
 
+[V0.8 Phase 4B](prototypes/cloudflare-v08/PHASE4B.md) 已加入管理者後端驗證及單次 KV 班表發布；維持 Worker＋KV，預設僅合成資料。可執行 `node prototypes/cloudflare-v08/serve-integrated-local.mjs` 做本機驗收，尚未部署。
+
 新增 `js/schedule-publication.js`，只處理記憶體中的匯出與載入，不新增網路請求、資料庫、登入或中央儲存。現有 PDF／Excel 上傳與換班演算法保持原流程。班表通過驗證且完成正式四週期確認後，結果區提供「匯出已確認班表（JSON）」。匯出的是已匯入班表，不包含個人暫時修正。
 
 **匯出檔是含姓名、員工編號與完整班別的明文檔，並非加密檔。僅供管理者私下保存，不可提交 Git、放入 Pages 或公開分享。** 此既有本機匯出工具沒有管理者身分控管，匯出按鈕是本機工具，任何完成匯入的人都可使用。

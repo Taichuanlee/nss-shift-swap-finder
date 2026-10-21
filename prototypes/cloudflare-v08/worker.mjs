@@ -21,16 +21,8 @@ async function readBody(request,limit) {
 }
 function settings(env) {
   const ttl=Number(env.SESSION_TTL_SECONDS ?? 3600);
-  if(!Number.isInteger(ttl)||ttl<1||ttl>604800||!/^[0-9a-f]{64}$/.test(env.ACCESS_CODE_SHA256||'')||!env.SCHEDULE_KV)throw new Error('configuration');
+  if(!Number.isInteger(ttl)||ttl<1||ttl>604800||!/^[0-9a-f]{64}$/.test(env.ACCESS_CODE_SHA256||'')||!env.SCHEDULE_KV||!env.LOGIN_LIMITER?.limit)throw new Error('configuration');
   return {ttl};
-}
-// Prototype-only fallback. Per-isolate limits are NOT a distributed brute-force defense.
-const attempts=new Map();
-function localLimit(ip,now) {
-  for(const [key,value] of attempts)if(value.until<=now)attempts.delete(key);
-  const value=attempts.get(ip)||{count:0,until:now+60000};
-  if(!attempts.has(ip)&&attempts.size>=1024)return false;
-  value.count++;attempts.set(ip,value);return value.count<=5;
 }
 async function session(request,env,now) {
   const matches=(request.headers.get('Cookie')||'').split(';').map(s=>s.trim()).filter(s=>s.startsWith(`${COOKIE}=`));
@@ -46,7 +38,7 @@ async function session(request,env,now) {
     value.createdAt>now||value.expiresAt<=now||value.expiresAt-value.createdAt>604800000)return null;
   return {key,expiresAt:value.expiresAt};
 }
-// Admin is deliberately separate from nurse sessions. No publishing route exists.
+// Admin credentials and publication permissions are separate from nurse sessions.
 const ADMIN_COOKIE='__Host-nss-ssf-admin';
 const adminCookie=(value,age)=>`${ADMIN_COOKIE}=${value}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${age}`;
 function adminSettings(env) {
@@ -62,12 +54,12 @@ async function adminSession(request,env,now) {
   const token=entries[0].slice(ADMIN_COOKIE.length+1);if(!/^[0-9a-f]{64}$/.test(token))return null;
   const key=`admin-session:${await digest(token)}`,raw=await env.SCHEDULE_KV.get(key);
   let value;try {value=JSON.parse(raw);}catch{return null;}
-  if(value?.role!=='admin'||value.version!==1||!Number.isSafeInteger(value.createdAt)||!Number.isSafeInteger(value.expiresAt)||
+  if(value?.credentialTag!==await digest(env.ADMIN_ACCESS_CODE_SHA256)||value?.role!=='admin'||value.version!==1||!Number.isSafeInteger(value.createdAt)||!Number.isSafeInteger(value.expiresAt)||
     value.createdAt>now||value.expiresAt<=now||value.expiresAt<=value.createdAt||value.expiresAt-value.createdAt>3600000)return null;
   return {key,expiresAt:value.expiresAt};
 }
 async function adminAPI(request,env,url,now) {
-  const expected=url.pathname==='/api/admin/session'?'GET':'POST';
+  const expected=['/api/admin/session','/api/admin/publication'].includes(url.pathname)?'GET':'POST';
   if(request.method!==expected)return response({error:'method_not_allowed'},405,{Allow:expected});
   if((request.headers.has('Origin')&&request.headers.get('Origin')!==url.origin)||request.headers.get('Sec-Fetch-Site')==='cross-site'||
     (expected==='POST'&&request.headers.get('Origin')!==url.origin))return response({error:'origin_rejected'},403);
@@ -87,7 +79,7 @@ async function adminAPI(request,env,url,now) {
     // Rotate an existing admin session on login.
     const previous=await adminSession(request,env,now);if(previous)await env.SCHEDULE_KV.delete(previous.key);
     const token=hex(crypto.getRandomValues(new Uint8Array(32))),expiresAt=now+ttl*1000;
-    await env.SCHEDULE_KV.put(`admin-session:${await digest(token)}`,JSON.stringify({version:1,role:'admin',createdAt:now,expiresAt}),{expirationTtl:Math.max(60,ttl)});
+    await env.SCHEDULE_KV.put(`admin-session:${await digest(token)}`,JSON.stringify({version:1,role:'admin',credentialTag:await digest(env.ADMIN_ACCESS_CODE_SHA256),createdAt:now,expiresAt}),{expirationTtl:Math.max(60,ttl)});
     return response({authenticated:true,expiresAt:new Date(expiresAt).toISOString()},200,{'Set-Cookie':adminCookie(token,ttl)});
   }
   const active=await adminSession(request,env,now);
@@ -96,12 +88,55 @@ async function adminAPI(request,env,url,now) {
     return response({authenticated:false},200,{'Set-Cookie':adminCookie('',0)});
   }
   if(!active)return response({error:'unauthorized'},401,{'Set-Cookie':adminCookie('',0)});
+  if(url.pathname==='/api/admin/publish')return publish(request,env);
+  if(url.pathname==='/api/admin/publication') {
+    const current=await readSchedule(env);if(current instanceof Response)return current;
+    return response({contentHash:await contentHash(current.payload),publishedAt:current.payload.publishedAt});
+  }
   return response({authenticated:true,expiresAt:new Date(active.expiresAt).toISOString()});
+}
+// Bound work before the shared adapter revalidates every date/identity/shift.
+function validatedPublication(payload,env) {
+  if(!Array.isArray(payload?.dates)||payload.dates.length>366||!Array.isArray(payload.employees)||payload.employees.length>1000||
+    payload.employees.some(e=>typeof e?.id!=='string'||e.id.length>128||typeof e.name!=='string'||e.name.length>128))throw new Error('invalid');
+  const model=publicationRuntime.SchedulePublication.load(payload);
+  if(env.SYNTHETIC_ONLY!=='false'&&!model.employees.every(e=>/^SYNTHETIC\d+$/.test(e.id)&&e.name.startsWith('合成')))throw new Error('synthetic_only');
+  return publicationRuntime.SchedulePublication.create(model);
+}
+async function contentHash(payload) {
+  // Stable content identity ignores the server-assigned publication timestamp.
+  const canonical=publicationRuntime.SchedulePublication.create(publicationRuntime.SchedulePublication.load(payload));
+  canonical.publishedAt='1970-01-01T00:00:00.000Z';return digest(JSON.stringify(canonical));
+}
+async function readSchedule(env) {
+  const raw=await env.SCHEDULE_KV.get('schedule:active',{cacheTtl:30});
+  if(raw===null)return response({error:'schedule_not_available'},503);
+  if(typeof raw!=='string'||encoder.encode(raw).byteLength>MAX_SCHEDULE_BYTES)return response({error:'invalid_schedule'},503);
+  try {const payload=JSON.parse(raw);validatedPublication(payload,env);return {raw,payload};}
+  catch {return response({error:'invalid_schedule'},503);}
+}
+async function publish(request,env) {
+  if(!(await env.ADMIN_LOGIN_LIMITER.limit({key:'admin-publish'})).success)return response({error:'too_many_attempts'},429,{'Retry-After':'60'});
+  if(request.headers.get('Content-Type')?.split(';')[0]!=='application/json')return response({error:'json_required'},415);
+  let submitted;
+  try {submitted=await readBody(request,MAX_SCHEDULE_BYTES);}
+  catch(error){return response({error:error.message==='size'?'publication_too_large':'invalid_publication'},error.message==='size'?413:400);}
+  let payload;
+  try {payload=validatedPublication(submitted,env);}
+  catch(error){return response({error:error.message==='synthetic_only'?'synthetic_only':'invalid_publication'},422);}
+  const raw=JSON.stringify(payload);
+  if(encoder.encode(raw).byteLength>MAX_SCHEDULE_BYTES)return response({error:'publication_too_large'},413);
+  const revision=await digest(raw),fingerprint=await contentHash(payload);
+  // Body reading may outlive a session. Recheck immediately before the only write.
+  if(!await adminSession(request,env,Date.now()))return response({error:'unauthorized'},401,{'Set-Cookie':adminCookie('',0)});
+  try {await env.SCHEDULE_KV.put('schedule:active',raw);}
+  catch {return response({error:'publication_unconfirmed'},503);}
+  return response({published:true,revision,contentHash:fingerprint,publishedAt:payload.publishedAt});
 }
 async function handle(request,env) {
   const url=new URL(request.url),now=Date.now();
   if(url.protocol!=='https:')return response({error:'https_required'},400);
-  if(['/api/admin/login','/api/admin/logout','/api/admin/session'].includes(url.pathname))return adminAPI(request,env,url,now);
+  if(['/api/admin/login','/api/admin/logout','/api/admin/session','/api/admin/publish','/api/admin/publication'].includes(url.pathname))return adminAPI(request,env,url,now);
   if(url.pathname.startsWith('/api/admin/'))return response({error:'not_found'},404);
   const adminPage=['/admin','/admin/','/admin.html'].includes(url.pathname);
   const loginPage=['/admin/login','/admin-login.html'].includes(url.pathname);
@@ -141,7 +176,7 @@ async function handle(request,env) {
   const {ttl}=settings(env);
   if(url.pathname==='/api/login') {
     const ip=request.headers.get('CF-Connecting-IP')||'local';
-    const allowed=env.LOGIN_LIMITER ? (await env.LOGIN_LIMITER.limit({key:ip})).success : localLimit(ip,now);
+    const allowed=(await env.LOGIN_LIMITER.limit({key:ip})).success;
     if(!allowed)return response({error:'too_many_attempts'},429,{'Retry-After':'60'});
     if(request.headers.get('Content-Type')?.split(';')[0]!=='application/json')return response({error:'json_required'},415);
     let body;try {body=await readBody(request,1024);}catch{return response({error:'invalid_request'},400);}
@@ -161,14 +196,8 @@ async function handle(request,env) {
   }
   if(!active)return response({error:'unauthorized'},401,{'Set-Cookie':cookie('',0)});
   if(url.pathname==='/api/session')return response({authenticated:true,expiresAt:new Date(active.expiresAt).toISOString()});
-  const raw=await env.SCHEDULE_KV.get('schedule:active',{cacheTtl:30});
-  if(raw===null)return response({error:'schedule_not_available'},503);
-  if(typeof raw!=='string'||encoder.encode(raw).byteLength>MAX_SCHEDULE_BYTES)return response({error:'invalid_schedule'},503);
-  let payload;try {
-    payload=JSON.parse(raw);publicationRuntime.SchedulePublication.load(payload);
-    // This isolated prototype intentionally refuses ordinary staff identities.
-    if(!payload.employees.every(e=>/^SYNTHETIC\d+$/.test(e.id)&&e.name.startsWith('合成')))throw new Error('synthetic_only');
-  }catch{return response({error:'invalid_schedule'},503);}
+  const current=await readSchedule(env);if(current instanceof Response)return current;
+  const {raw,payload}=current;
   return response({revision:await digest(raw),observedAt:new Date(now).toISOString(),colo:request.cf?.colo||'local',
     expiresAt:new Date(active.expiresAt).toISOString(),payload});
 }

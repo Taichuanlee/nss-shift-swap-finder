@@ -1,3 +1,5 @@
+> 現行整合版請參考 [Phase 4B](PHASE4B.md)：發布與讀取權限分離、單次 KV 更新，兩個登入 limiter 均為必要 binding；下方保留 Phase 2 原型紀錄。
+
 # Cloudflare V0.8 獨立技術原型
 
 **Phase 3 已提供獨立的完整 SSF＋中央班表資源包；部署方式與本頁 Phase 2 單檔不同，請看 [PHASE3.md](PHASE3.md)。** 本頁 `build.mjs` 仍保留原診斷原型與既有測試。
