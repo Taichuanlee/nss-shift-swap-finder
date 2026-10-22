@@ -41,7 +41,6 @@ export async function buildIntegrated() {
   html=html.replace('<div class="workspace">',panel+'\n    <div class="workspace" id="manual-workspace" hidden>')
     .replace('<script src="js/app.js" defer></script>','<script src="js/app.js" defer></script>\n  <script src="central-schedule.js" defer></script>')
     .replace('<link rel="stylesheet" href="css/style.css">','<link rel="stylesheet" href="css/style.css">\n  <link rel="stylesheet" href="central-schedule.css">')
-    .replace('<span class="version">v0.7</span>','<span class="version">v0.8 測試</span>')
     .replace('<strong>您的班表，留在您的裝置</strong><p>班表資料將於您的裝置上處理，不會上傳至伺服器。</p>',
       '<strong>單位班表與自行上傳，來源清楚區分</strong><p>單位班表登入後由私人服務取得；自行上傳的檔案只在裝置上解析。換班搜尋在您的裝置上進行，不會修改單位班表。</p>');
   if(!html.includes('id="central-login"')||!html.includes('central-schedule.js'))throw new Error('SSF integration insertion failed.');

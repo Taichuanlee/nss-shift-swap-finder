@@ -176,7 +176,7 @@
         publicationState='success';$('publish-status').textContent='發布成功。新班表已儲存，同仁稍候重新載入即可取得更新。';
       }else if([400,403,405,413,415,422,429].includes(result.status)) {
         publicationState='idle';
-        const messages={synthetic_only:'目前測試環境只接受合成班表。',publication_too_large:'班表資料過大，未發布。',too_many_attempts:'發布次數過於頻繁，請稍後重試。'};
+        const messages={synthetic_only:'目前環境僅接受合成班表。',publication_too_large:'班表資料過大，未發布。',too_many_attempts:'發布次數過於頻繁，請稍後重試。'};
         $('publish-status').textContent=messages[result.data.error]||'發布失敗：權限或班表驗證未通過，未更新班表。';
       }else await checkPublication(token);
     }catch {
