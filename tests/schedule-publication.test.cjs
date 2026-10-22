@@ -49,7 +49,7 @@ test('rejects unsupported schema, malformed dates/cycles, identities, missing/ex
   p=>p.cycle.endDate=ds[6],p=>p.cycle.startDate='2025-01-01',
   p=>p.employees[1].id=p.employees[0].id,p=>p.employees[0].name='',p=>p.employees[0].id='unresolved-1',
   p=>delete p.employees[0].shifts[ds[0]],p=>p.employees[0].shifts['2030-01-01']='O',
-  p=>p.employees[0].shifts[ds[0]]='OX',p=>p.employees[0].shifts[ds[0]]='',
+  p=>p.employees[0].shifts[ds[0]]='OX',
   p=>p.employees[0].shifts[ds[0]]=null,p=>p.validation={readyForSearch:true},p=>p.employees=[],p=>p.dates=null];
  for(const change of cases) {const p=plain(P.create(m));change(p);assert.throws(()=>P.load(p));}
  for(const value of ['{','null','[]','"test"'])assert.throws(()=>P.deserialize(value));

@@ -66,7 +66,7 @@
     }catch {throw new Error('單位班表格式錯誤或驗證未通過，未載入任何資料。');}
     session(data);
     controller.acceptCentral(model,{revision:data.revision,publishedAt:data.payload.publishedAt});
-    status('單位班表已載入，正式四週期由管理者確認。請在下方選擇自己並確認身分。');
+    status('單位班表已載入，正式四週期由管理者確認。請在下方選擇自己並確認身分。'+(model.warnings.some(w=>w.code==='BLANK_SHIFT')?' 資料不完整：空白班別為未知／未排定；整排空白者不參與搜尋，涉及未知日期的交換候選將排除。':''));
   }
   function restore() {
     return run(async(signal,token)=>{

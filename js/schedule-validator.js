@@ -49,11 +49,12 @@
       for (const date of dates) {
         const raw = employee.shifts[date];
         const kind = classify(raw, options.extraLeaveCodes || []);
-        if (kind === 'blank') add('errors','local','BLANK_SHIFT',`${date} 缺少班別；空白不視為休假。`,employee.shiftSources?.[date],employee.id);
+        if (kind === 'blank') add('warnings','local','BLANK_SHIFT',`${date} 缺少班別；空白不視為休假。`,employee.shiftSources?.[date],employee.id);
         if (kind === 'unknown') add('errors','local','UNKNOWN_SHIFT',`${date} 班別「${raw}」待確認；不視為休假。`,employee.shiftSources?.[date],employee.id);
       }
       const localErrors = model.errors.filter(i => i.scope === 'local' && i.employeeId === employee.id);
-      employee.validation = {complete: employee.identityResolved !== false && !localErrors.length, eligible: false};
+      const unknownDates=dates.filter(d=>classify(employee.shifts[d])==='blank');
+      employee.validation = {complete: employee.identityResolved !== false && !localErrors.length && !unknownDates.length, incomplete:unknownDates.length>0, unknownDates, eligible:false};
     }
     const globalStructureValid = !!dates.length && !!model.employees.length && !model.errors.some(i => i.scope === 'global');
     const shiftsComplete = model.employees.length > 0 && model.employees.every(e => e.validation.complete);
@@ -67,12 +68,12 @@
     if (model.cycleConfirmed && (!cycleLengthValid || !cycleDatesComplete)) {
       add('errors','global','CYCLE_RANGE_INVALID','正式四週期須為連續 28 天，且每天都在已匯入的班表中。');
     }
-    const readyForSearch = globalStructureValid && datesComplete && shiftsComplete &&
+    const readyForSearch = globalStructureValid && datesComplete &&
       !model.errors.length && model.cycleConfirmed && cycleLengthValid && cycleDatesComplete;
-    for (const employee of model.employees) employee.validation.eligible = readyForSearch && employee.validation.complete;
+    for (const employee of model.employees) employee.validation.eligible = readyForSearch && employee.identityResolved !== false && !model.errors.some(e=>e.employeeId===employee.id) && dates.some(d=>['work','leave'].includes(classify(employee.shifts[d])));
     model.validation = {globalStructureValid, cycleLengthValid, cycleDatesComplete, datesComplete,
       shiftsComplete, hasBlockingIssues: !readyForSearch, readyForSearch,
-      basicValidationPassed: globalStructureValid && datesComplete && shiftsComplete,
+      basicValidationPassed: globalStructureValid && datesComplete && !model.errors.length,
       completeEmployeeCount: model.employees.filter(e => e.validation.complete).length};
     return model;
   }

@@ -81,7 +81,7 @@ test('cross-page differences remain blocking after the known typo is confirmed',
   assert.equal(m.validation.readyForSearch,false);
 });
 test('unknown codes and conflicting daily shifts remain blocking after correction',()=>{
-  for(const code of ['OX','A特','']) {
+  for(const code of ['OX','A特']) {
     const rows=sourceRows();rows[2][12]=code;
     const m=accept(parse([rows]));
     assert.ok(m.errors.some(e=>e.code==='UNKNOWN_SHIFT'||e.code==='BLANK_SHIFT'));

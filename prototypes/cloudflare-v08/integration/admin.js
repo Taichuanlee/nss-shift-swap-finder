@@ -50,6 +50,8 @@
     }
     if(!model.validation.cycleLengthValid||!model.validation.cycleDatesComplete)area.append(node('p','四週期必須完整涵蓋已匯入的連續 28 天，請調整起始日。','invalid'));
     if(!model.cycleConfirmed)area.append(node('p','尚未確認正式四週期。','invalid'));
+    const blanks=model.warnings.filter(w=>w.code==='BLANK_SHIFT');
+    if(blanks.length)area.append(node('p',`資料不完整：${blanks.length} 個班別為未知／未排定；保留所有人員，不阻止發布。整排空白者不參與搜尋，涉及未知日期的交換候選將排除。`));
     if(!area.childNodes.length)area.append(node('p','無未解決的關鍵錯誤。'));
   }
   function renderPreview() {
@@ -67,7 +69,7 @@
       const tr=node('tr','');tr.append(node('th',`${employee.id} / ${employee.name}`,'identity'));
       for(const date of model.scheduleDates) {
         const details=employee.shiftDetails[date]||[],conflict=new Set(details.map(d=>d.normalized)).size>1;
-        const td=node('td',conflict?details.map(d=>d.raw||'（空白）').join(' / '):employee.shifts[date]||'（缺漏）',inside(date)?'official':'outside');
+        const td=node('td',conflict?details.map(d=>d.raw||'（空白）').join(' / '):employee.shifts[date]||'未知／未排定',inside(date)?'official':'outside');
         if(conflict||['blank','unknown'].includes(ns.Model.classify(employee.shifts[date])))td.classList.add('invalid');
         td.title=details.map(d=>`原始班別：${d.raw} (${sourceText(d.source)})`).join('\n');tr.append(td);
       }

@@ -238,3 +238,33 @@ test('password changes revoke only their own role; legacy admin hash is not a fa
   f.env.ADMIN_ACCESS_CODE_SHA256=hash(f.code);delete f.env.ADMIN_ACCESS_CODE;
   assert.equal((await post(f,'/api/admin/login',f.code)).status,503);
 });
+
+test('incomplete PDF/Excel preview can publish; nurse UI retains unknown days and warns',async()=>{
+ const f=fixture(),server=await startLocal(f.env,worker);let browser;
+ try {
+  browser=await chromium.launchPersistentContext(await mkdtemp(path.join(os.tmpdir(),'nss-blank-')),{headless:true,ignoreHTTPSErrors:true,executablePath:process.env.CHROME_PATH||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});
+  const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.goto(server.origin+'/admin/login');await page.locator('#admin-code').fill(f.code);await page.locator('#admin-login button').click();await page.waitForURL('**/admin');
+  await page.waitForFunction(()=>!document.getElementById('admin-file').disabled);
+  const ds=dates(40,Date.UTC(2026,10,4)),rows=grid(ds);rows[0]=['Synthetic schedule 2026-11-09 ~ 2026-12-06'];
+  rows[2][0]='SYNTHETIC001';rows[2][1]='合成測試員甲';rows[2][7]='';
+  rows[3]=['SYNTHETIC002','合成測試員乙',...ds.map(()=> '')];
+  for(const type of ['pdf','xlsx']) {
+   let buffer;
+   if(type==='pdf')buffer=pdf([rows]);else {const book=XLSX.utils.book_new();XLSX.utils.book_append_sheet(book,XLSX.utils.aoa_to_sheet(rows),'Synthetic');buffer=Buffer.from(XLSX.write(book,{type:'buffer',bookType:'xlsx'}));}
+   await page.locator('#admin-file').setInputFiles({name:'synthetic-blank.'+type,mimeType:type==='pdf'?'application/pdf':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer});
+   await page.waitForFunction(()=>document.querySelectorAll('#admin-preview tbody tr').length===2);
+   assert.match(await page.locator('#admin-errors').textContent(),/資料不完整/);assert.match(await page.locator('#admin-preview').textContent(),/未知／未排定/);
+   await page.locator('#admin-confirm-cycle').click();assert.equal(await page.locator('#admin-publish').isDisabled(),false);
+   await page.locator('#admin-publish').click();await page.waitForFunction(()=>document.getElementById('publish-status').textContent.startsWith('發布成功'));
+   const saved=JSON.parse(f.kv.values.get('schedule:active').value);assert.equal(saved.employees.length,2);assert.ok(ds.every(d=>saved.employees[1].shifts[d]===''));assert.equal(saved.employees[0].shifts[ds[5]],'');
+  }
+  await page.goto(server.origin+'/');await page.locator('#central-code').fill(f.nurse);await page.locator('#central-login button').click();
+  await page.waitForFunction(()=>document.getElementById('central-status').textContent.includes('資料不完整'));
+  const loaded=await page.evaluate(async()=>{
+   const payload=(await (await fetch('/api/schedule')).json()).payload,ns=NSSShiftSwapFinder,m=ns.SchedulePublication.load(payload);
+   return {ids:m.employees.map(e=>e.id),empty:ns.PersonalSchedule.calendar(m,'SYNTHETIC002').every(d=>d.kind==='blank'),options:ns.SwapEngine.options(m,'SYNTHETIC002')};
+  });
+  assert.deepEqual(loaded.ids,['SYNTHETIC001','SYNTHETIC002']);assert.equal(loaded.empty,true);assert.deepEqual(loaded.options,{workDates:[],leaveDates:[]});assert.deepEqual(errors,[]);
+ }finally {await browser?.close();await server.close();}
+});

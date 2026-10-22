@@ -10,7 +10,7 @@
   function uniqueEmployee(model, id) {
     const matches = (model?.employees || []).filter(e => e.id === id);
     const e = matches[0];
-    return matches.length === 1 && typeof id === 'string' && id.trim() && !id.startsWith('unresolved-') && e.identityResolved && e.validation?.complete ? e : null;
+    return matches.length === 1 && typeof id === 'string' && id.trim() && !id.startsWith('unresolved-') && e.identityResolved && (e.validation?.complete || e.validation?.incomplete) ? e : null;
   }
   function search(model, query) {
     const q = query.trim().toLocaleLowerCase();
@@ -32,8 +32,8 @@
     return Array.from({length:28},(_,i) => {
       const date = ns.ImportConfirmation.addDays(model.cycleStartDate,i), code = employee.shifts[date];
       const kind = ns.Model.classify(code);
-      if (!model.scheduleDates.includes(date) || !['work','leave'].includes(kind)) throw new Error('個人班表資料不完整，請重新檢查匯入結果。');
-      return {date, code, kind, weekday:weekdays[new Date(`${date}T00:00:00Z`).getUTCDay()]};
+      if (!model.scheduleDates.includes(date) || !['work','leave','blank'].includes(kind)) throw new Error('個人班表資料不完整，請重新檢查匯入結果。');
+      return {date, code:code ?? '', kind, weekday:weekdays[new Date(`${date}T00:00:00Z`).getUTCDay()]};
     });
   }
   // Memory-only overlay. Imported cells and other employees are never written.
@@ -48,6 +48,7 @@
     function check(date) {active();if(!allowed.has(date)) throw new Error('只能修改本人正式四週期內的日期。');}
     function set(date,code) {
       check(date);
+      if(ns.Model.classify(employee.shifts[date])==='blank')throw new Error('未知／未排定日期不能以個人修正代替。');
       if(!['A','E','N','O'].includes(code) || !['work','leave'].includes(ns.Model.classify(code))) throw new Error('請選擇 A、E、N 或 O。');
       if(code===employee.shifts[date]) changes.delete(date); else changes.set(date,code);
     }
@@ -66,9 +67,9 @@
         cell.dataset.date=day.date;
         const time=root.createElement('time'); time.dateTime=day.date; time.textContent=`${Number(day.date.slice(5,7))}/${Number(day.date.slice(8))}`;
         const weekday=root.createElement('span'); weekday.className='day-weekday'; weekday.textContent=`週${day.weekday}`;
-        const shift=root.createElement('strong'); shift.textContent=day.exchanged ? `${day.beforeCode} → ${day.code}` : day.code;
-        cell.setAttribute('aria-label',`${day.date} 星期${day.weekday} ${day.code} ${day.kind==='work'?'上班':'休假'}${day.exchanged ? `，交換前 ${day.beforeCode}，交換後 ${day.code}` : ''}`);
-        if(edit || (selectWork && day.kind==='work')) {
+        const shift=root.createElement('strong'); shift.textContent=day.exchanged ? `${day.beforeCode} → ${day.code}` : (day.code||'未知／未排定');
+        cell.setAttribute('aria-label',`${day.date} 星期${day.weekday} ${day.code} ${day.kind==='work'?'上班':day.kind==='leave'?'休假':'未知／未排定'}${day.exchanged ? `，交換前 ${day.beforeCode}，交換後 ${day.code}` : ''}`);
+        if((edit && day.kind!=='blank') || (selectWork && day.kind==='work')) {
           const chooseDay=root.createElement('button');chooseDay.type='button';chooseDay.className=edit?'edit-day':'want-day';chooseDay.dataset.date=day.date;
           chooseDay.setAttribute('aria-pressed','false');chooseDay.setAttribute('aria-label',`${day.date} 星期${day.weekday} ${day.code}${day.modified ? `，原始 ${day.originalCode}` : ''}，${edit?'修改班別':'選擇想休日期'}`);
           chooseDay.append(time,weekday,shift);cell.append(chooseDay);
@@ -140,6 +141,7 @@
       root.querySelector('#personal-range').textContent=`${model.cycleStartDate} ～ ${model.cycleEndDate} · 共 28 天`;
       corrections=createCorrections(model,confirmedId);editing=false;editDate=null;editor.hidden=true;
       renderPersonal();
+      if(employee.validation.incomplete)message.textContent+=' 班表資料不完整：空白為未知／未排定，涉及未知日期的交換候選不提供。';
       personal.hidden=false; onConfirmed(corrections.effective(),confirmedId); guide(personal);
     });
     function renderPersonal() {

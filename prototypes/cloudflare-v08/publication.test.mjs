@@ -85,3 +85,15 @@ test('publication: cached old snapshot is inconclusive, not an instruction to re
   f.kv.staleSchedule=null;assert.equal((await (await f.call('/api/admin/publication',{cookie:f.cookie})).json()).contentHash,receipt.contentHash);
   assert.equal(f.kv.writes.length,1);
 });
+
+test('publication: blank and partial schedules keep identities across admin publish and nurse read',async()=>{
+ const f=await fixture(),payload=JSON.parse(b),days=payload.dates;
+ payload.employees[0].shifts[days[0]]='';payload.employees[1].shifts=Object.fromEntries(days.map(d=>[d,'']));
+ const published=await f.publish(payload);assert.equal(published.status,200);
+ const login=await f.call('/api/login',{method:'POST',body:{code:f.nurse}}),cookie=login.headers.get('set-cookie').split(';')[0];
+ const read=await f.call('/api/schedule',{cookie});assert.equal(read.status,200);
+ const saved=(await read.json()).payload;assert.deepEqual(saved.employees,payload.employees);
+ assert.equal((await f.call('/api/schedule')).status,401);
+ assert.equal((await f.publish(payload,{cookie})).status,401);
+ const bad=structuredClone(payload);bad.employees[0].shifts[days[1]]='UNKNOWN';assert.equal((await f.publish(bad)).status,422);
+});

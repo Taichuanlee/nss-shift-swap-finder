@@ -46,5 +46,5 @@ test('unconfirmed, invalid, duplicate, unknown or missing calendar data cannot b
  m=model();m.validation.readyForSearch=false;assert.throws(()=>P.calendar(m,'EXAMPLE001'));
  m=model();assert.throws(()=>P.calendar(m,'missing'));m.employees.push({...m.employees[0]});assert.throws(()=>P.calendar(m,'EXAMPLE001'));
  m=model();m.employees[0].shifts[m.cycleStartDate]='OX';assert.throws(()=>P.calendar(m,'EXAMPLE001'));
- m=model();delete m.employees[0].shifts[m.cycleStartDate];assert.throws(()=>P.calendar(m,'EXAMPLE001'));
+ m=model();delete m.employees[0].shifts[m.cycleStartDate];assert.equal(P.calendar(m,'EXAMPLE001')[0].kind,'blank');
 });

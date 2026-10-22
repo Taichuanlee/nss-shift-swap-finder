@@ -39,8 +39,8 @@
       const shifts = Object.create(null);
       for (const day of model.scheduleDates) {
         const code = employee.shifts[day];
-        if (typeof code !== 'string' || !['work','leave'].includes(ns.Model.classify(code))) fail();
-        shifts[day] = code;
+        if (typeof code !== 'string' || !['work','leave','blank'].includes(ns.Model.classify(code))) fail();
+        shifts[day] = ns.Model.classify(code)==='blank'?'':code;
       }
       return {id:employee.id,name:employee.name,shifts,shiftSources:Object.create(null),
         shiftDetails:Object.create(null),identityResolved:true};
@@ -65,7 +65,7 @@
     const publication = {format:FORMAT,schemaVersion:VERSION,publishedAt:new Date().toISOString(),
       cycle:{startDate:copy.cycleStartDate,endDate:copy.cycleEndDate},dates:[...copy.scheduleDates],
       employees:copy.employees.map(e => ({id:e.id,name:e.name,
-        shifts:Object.fromEntries(copy.scheduleDates.map(day => [day,e.shifts[day]]))}))};
+        shifts:Object.fromEntries(copy.scheduleDates.map(day => [day,e.shifts[day] ?? '']))}))};
     load(publication);
     return publication;
   }

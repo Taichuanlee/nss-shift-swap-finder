@@ -70,7 +70,7 @@ test('cross-month and cross-year partial dates',()=>{
 test('unknown O code and blanks are local, healthy employees retained',()=>{
  const rows=grid();rows[2][3]='OX';rows[2][4]='';const m=parseGrid(rows);
  assert.equal(m.employees[0].shifts[dates()[1]],'OX');assert.equal(ns.Model.classify('OX'),'unknown');assert.equal(ns.Model.classify('OF'),'leave');assert.equal(ns.Model.classify(''),'blank');assert.equal(m.validation.globalStructureValid,true);assert.equal(m.employees[0].validation.complete,false);assert.equal(m.employees[1].validation.complete,true);
- ns.Validator.validate(m,{extraLeaveCodes:['OX']});assert.ok(!m.errors.some(i=>i.code==='UNKNOWN_SHIFT'));assert.ok(m.errors.some(i=>i.code==='BLANK_SHIFT'));
+ ns.Validator.validate(m,{extraLeaveCodes:['OX']});assert.ok(!m.errors.some(i=>i.code==='UNKNOWN_SHIFT'));assert.ok(m.warnings.some(i=>i.code==='BLANK_SHIFT'));
 });
 test('eight confirmed annotations normalize in PDF and Excel while preserving every raw cell',()=>{
  const inputs=['A 休','E 休','N 休','O N','E 休 -8','E -8 休','N 休 -8','N -8 休'];

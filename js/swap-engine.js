@@ -6,7 +6,7 @@
   const kind=code=>ns.Model.classify(code);
   function validEmployee(model,id) {
     const employee=ns.PersonalSchedule.uniqueEmployee(model,id);
-    return employee && !model.errors.some(e=>e.scope==='global'||e.employeeId===id) && model.scheduleDates.every(d=>['work','leave'].includes(kind(employee.shifts[d]))) ? employee : null;
+    return employee && !model.errors.some(e=>e.scope==='global'||e.employeeId===id) && model.scheduleDates.every(d=>['work','leave','blank'].includes(kind(employee.shifts[d]))) ? employee : null;
   }
   function cycleDates(model) {
     if(!ns.PersonalSchedule.available(model) || addDays(model.cycleStartDate,27)!==model.cycleEndDate) throw new Error('請先完成匯入、正式四週期及身分確認。');
@@ -74,6 +74,23 @@
     const edge=afterAffected.some(r=>r.start===dates[0]||r.end===dates.at(-1));
     return {before:beforeAffected,after:afterAffected,beforeMax:Math.max(0,...beforeAffected.map(r=>r.length)),afterMax:Math.max(0,...afterAffected.map(r=>r.length)),worsened,worsenedRuns,edge,fragmentation:fragmentationImpact(dates,employee.shifts,simulated,changed)};
   }
+  // Unknown dates cannot act as rest boundaries or as evidence for risk checks.
+  function assessmentKnown(model,employee,overrides) {
+    const dates=model.scheduleDates,changed=Object.keys(overrides);
+    for(const day of changed) {
+      const at=dates.indexOf(day);
+      for(let i=Math.max(0,at-3);i<=Math.min(dates.length-1,at+3);i++)
+        if(kind(employee.shifts[dates[i]])==='blank')return false;
+      for(const shifts of [employee.shifts,{...employee.shifts,...overrides}]) {
+        for(const step of [-1,1]) {
+          let i=at+step;
+          while(i>=0&&i<dates.length&&kind(shifts[dates[i]])==='work')i+=step;
+          if(i>=0&&i<dates.length&&kind(shifts[dates[i]])==='blank')return false;
+        }
+      }
+    }
+    return true;
+  }
   function search(model,id,wantedDate,exchangeDates) {
     const allowed=options(model,id), self=validEmployee(model,id);
     if(!allowed.workDates.includes(wantedDate)) throw new Error('想休日期必須是正式四週期內的 A／E／N 工作日。');
@@ -90,6 +107,7 @@
         if(!['A','E','N'].includes(d1) || d1!==d2) {group.excluded.shift++;continue;}
         const selfChanges={[wantedDate]:other.shifts[wantedDate],[exchangeDate]:d2};
         const otherChanges={[wantedDate]:d1,[exchangeDate]:self.shifts[exchangeDate]};
+        if(!assessmentKnown(model,self,selfChanges)||!assessmentKnown(model,other,otherChanges)){group.excluded.invalid++;continue;}
         const selfImpact=impact(model,self,selfChanges),otherImpact=impact(model,other,otherChanges);
         if(otherImpact.worsened) {group.excluded.consecutive++;continue;}
         const risks={consecutive:selfImpact.worsened,fragmented:selfImpact.fragmentation.worsened||otherImpact.fragmentation.worsened};
