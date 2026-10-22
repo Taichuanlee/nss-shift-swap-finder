@@ -56,10 +56,10 @@ export async function buildIntegrated() {
     assets:{directory:'./public',binding:'ASSETS',run_worker_first:true,html_handling:'none'},
     vars:{SYNTHETIC_ONLY:'true'},
     ratelimits:[{name:'LOGIN_LIMITER',namespace_id:'8808',simple:{limit:5,period:60}},{name:'ADMIN_LOGIN_LIMITER',namespace_id:'8809',simple:{limit:5,period:60}}],
-    kv_namespaces:[{binding:'SCHEDULE_KV',id:'REPLACE_WITH_EXISTING_TEST_NAMESPACE_ID'}]},null,2));
+    kv_namespaces:[{binding:'SCHEDULE_KV',id:'745fd00938e14081823e0b5a9239ffcd'}]},null,2));
   await writeFile(path.join(output,'asset-inventory.json'),JSON.stringify(inventory.sort(),null,2));
   return {output,assets,inventory};
 }
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
-  const result=await buildIntegrated();console.log(`Local SSF + ASSETS package: ${result.output}\n${result.inventory.length} public resources. Not deployed. Fill the test KV namespace ID before deployment.`);
+  const result=await buildIntegrated();console.log(`Local SSF + ASSETS package: ${result.output}\n${result.inventory.length} public resources. Not deployed. Verify the existing test KV namespace ID before deployment.`);
 }

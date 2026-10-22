@@ -19,9 +19,16 @@ async function readBody(request,limit) {
   const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.byteLength;}
   return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));
 }
+// Secrets contain the operator's password, never a client-side hash.
+const validCode=value=>typeof value==='string'&&value.length>=5&&value.length<=128;
+async function matchesCode(code,secret) {
+  const actual=await digest(code),expected=await digest(secret);let difference=0;
+  for(let i=0;i<64;i++)difference|=actual.charCodeAt(i)^expected.charCodeAt(i);
+  return difference===0;
+}
 function settings(env) {
   const ttl=Number(env.SESSION_TTL_SECONDS ?? 3600);
-  if(!Number.isInteger(ttl)||ttl<1||ttl>604800||!/^[0-9a-f]{64}$/.test(env.ACCESS_CODE_SHA256||'')||!env.SCHEDULE_KV||!env.LOGIN_LIMITER?.limit)throw new Error('configuration');
+  if(!Number.isInteger(ttl)||ttl<1||ttl>604800||!validCode(env.ACCESS_CODE)||!env.SCHEDULE_KV||!env.LOGIN_LIMITER?.limit)throw new Error('configuration');
   return {ttl};
 }
 async function session(request,env,now) {
@@ -34,7 +41,7 @@ async function session(request,env,now) {
   const raw=await env.SCHEDULE_KV.get(key);
   if(!raw)return null;
   let value;try {value=JSON.parse(raw);}catch{return null;}
-  if(value?.version!==1||!Number.isSafeInteger(value.expiresAt)||!Number.isSafeInteger(value.createdAt)||
+  if(value?.credentialTag!==await digest('nurse:'+env.ACCESS_CODE)||value?.version!==1||!Number.isSafeInteger(value.expiresAt)||!Number.isSafeInteger(value.createdAt)||
     value.createdAt>now||value.expiresAt<=now||value.expiresAt-value.createdAt>604800000)return null;
   return {key,expiresAt:value.expiresAt};
 }
@@ -44,8 +51,8 @@ const adminCookie=(value,age)=>`${ADMIN_COOKIE}=${value}; Path=/; HttpOnly; Secu
 function adminSettings(env) {
   const ttl=Number(env.ADMIN_SESSION_TTL_SECONDS ?? 3600);
   if(!Number.isInteger(ttl)||ttl<1||ttl>3600||!env.SCHEDULE_KV||
-    !/^[0-9a-f]{64}$/.test(env.ADMIN_ACCESS_CODE_SHA256||'')||
-    env.ADMIN_ACCESS_CODE_SHA256===env.ACCESS_CODE_SHA256||!env.ADMIN_LOGIN_LIMITER?.limit)throw new Error('admin_configuration');
+    !validCode(env.ADMIN_ACCESS_CODE)||
+    env.ADMIN_ACCESS_CODE===env.ACCESS_CODE||!env.ADMIN_LOGIN_LIMITER?.limit)throw new Error('admin_configuration');
   return {ttl};
 }
 async function adminSession(request,env,now) {
@@ -54,7 +61,7 @@ async function adminSession(request,env,now) {
   const token=entries[0].slice(ADMIN_COOKIE.length+1);if(!/^[0-9a-f]{64}$/.test(token))return null;
   const key=`admin-session:${await digest(token)}`,raw=await env.SCHEDULE_KV.get(key);
   let value;try {value=JSON.parse(raw);}catch{return null;}
-  if(value?.credentialTag!==await digest(env.ADMIN_ACCESS_CODE_SHA256)||value?.role!=='admin'||value.version!==1||!Number.isSafeInteger(value.createdAt)||!Number.isSafeInteger(value.expiresAt)||
+  if(value?.credentialTag!==await digest('admin:'+env.ADMIN_ACCESS_CODE)||value?.role!=='admin'||value.version!==1||!Number.isSafeInteger(value.createdAt)||!Number.isSafeInteger(value.expiresAt)||
     value.createdAt>now||value.expiresAt<=now||value.expiresAt<=value.createdAt||value.expiresAt-value.createdAt>3600000)return null;
   return {key,expiresAt:value.expiresAt};
 }
@@ -72,14 +79,12 @@ async function adminAPI(request,env,url,now) {
     }
     if(request.headers.get('Content-Type')?.split(';')[0]!=='application/json')return response({error:'json_required'},415);
     let body;try {body=await readBody(request,1024);}catch{return response({error:'invalid_request'},400);}
-    if(typeof body?.code!=='string'||body.code.length<32||body.code.length>128)return response({error:'invalid_code'},401);
-    const actual=await digest(body.code);let difference=0;
-    for(let i=0;i<64;i++)difference|=actual.charCodeAt(i)^env.ADMIN_ACCESS_CODE_SHA256.charCodeAt(i);
-    if(difference)return response({error:'invalid_code'},401);
+    if(!validCode(body?.code))return response({error:'invalid_code'},401);
+    if(!await matchesCode(body.code,env.ADMIN_ACCESS_CODE))return response({error:'invalid_code'},401);
     // Rotate an existing admin session on login.
     const previous=await adminSession(request,env,now);if(previous)await env.SCHEDULE_KV.delete(previous.key);
     const token=hex(crypto.getRandomValues(new Uint8Array(32))),expiresAt=now+ttl*1000;
-    await env.SCHEDULE_KV.put(`admin-session:${await digest(token)}`,JSON.stringify({version:1,role:'admin',credentialTag:await digest(env.ADMIN_ACCESS_CODE_SHA256),createdAt:now,expiresAt}),{expirationTtl:Math.max(60,ttl)});
+    await env.SCHEDULE_KV.put(`admin-session:${await digest(token)}`,JSON.stringify({version:1,role:'admin',credentialTag:await digest('admin:'+env.ADMIN_ACCESS_CODE),createdAt:now,expiresAt}),{expirationTtl:Math.max(60,ttl)});
     return response({authenticated:true,expiresAt:new Date(expiresAt).toISOString()},200,{'Set-Cookie':adminCookie(token,ttl)});
   }
   const active=await adminSession(request,env,now);
@@ -180,13 +185,11 @@ async function handle(request,env) {
     if(!allowed)return response({error:'too_many_attempts'},429,{'Retry-After':'60'});
     if(request.headers.get('Content-Type')?.split(';')[0]!=='application/json')return response({error:'json_required'},415);
     let body;try {body=await readBody(request,1024);}catch{return response({error:'invalid_request'},400);}
-    if(typeof body?.code!=='string'||body.code.length<32||body.code.length>128)return response({error:'invalid_code'},401);
-    const actual=await digest(body.code);let difference=0;
-    for(let i=0;i<64;i++)difference|=actual.charCodeAt(i)^env.ACCESS_CODE_SHA256.charCodeAt(i);
-    if(difference)return response({error:'invalid_code'},401);
+    if(!validCode(body?.code))return response({error:'invalid_code'},401);
+    if(!await matchesCode(body.code,env.ACCESS_CODE))return response({error:'invalid_code'},401);
     const token=hex(crypto.getRandomValues(new Uint8Array(32)));
     const expiresAt=now+ttl*1000;
-    await env.SCHEDULE_KV.put(`session:${await digest(token)}`,JSON.stringify({version:1,createdAt:now,expiresAt}),{expirationTtl:Math.max(60,ttl)});
+    await env.SCHEDULE_KV.put(`session:${await digest(token)}`,JSON.stringify({version:1,credentialTag:await digest('nurse:'+env.ACCESS_CODE),createdAt:now,expiresAt}),{expirationTtl:Math.max(60,ttl)});
     return response({authenticated:true,expiresAt:new Date(expiresAt).toISOString()},200,{'Set-Cookie':cookie(token,ttl)});
   }
   const active=await session(request,env,now);

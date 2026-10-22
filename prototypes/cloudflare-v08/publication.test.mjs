@@ -6,7 +6,7 @@ import {MemoryKV,prepare} from './local-harness.mjs';
 const {worker,a,b}=await prepare(),hash=value=>createHash('sha256').update(value).digest('hex');
 async function fixture() {
   const code=randomBytes(32).toString('base64url'),nurse=randomBytes(32).toString('base64url'),kv=new MemoryKV();kv.values.set('schedule:active',{value:a});
-  const limiter={limit:async()=>({success:true})},env={SCHEDULE_KV:kv,ACCESS_CODE_SHA256:hash(nurse),ADMIN_ACCESS_CODE_SHA256:hash(code),LOGIN_LIMITER:limiter,ADMIN_LOGIN_LIMITER:limiter};
+  const limiter={limit:async()=>({success:true})},env={SCHEDULE_KV:kv,ACCESS_CODE:nurse,ADMIN_ACCESS_CODE:code,LOGIN_LIMITER:limiter,ADMIN_LOGIN_LIMITER:limiter};
   const call=(route,{method='GET',body,cookie,origin='https://test.example',headers={}}={})=>worker.fetch(new Request('https://test.example'+route,{method,headers:{...(method==='POST'?{Origin:origin,'Content-Type':'application/json'}:{}),...(cookie?{Cookie:cookie}:{}),...headers},...(body===undefined?{}:{body:JSON.stringify(body)})}),env);
   const login=await call('/api/admin/login',{method:'POST',body:{code}});assert.equal(login.status,200);
   const cookie=login.headers.get('set-cookie').split(';')[0];kv.writes.length=0;
@@ -67,7 +67,7 @@ test('publication: limiter/config failure and revoked/rotated admin sessions fai
   const f=await fixture();f.env.ADMIN_LOGIN_LIMITER={limit:async()=>({success:false})};assert.equal((await f.publish()).status,429);
   f.env.ADMIN_LOGIN_LIMITER={limit:async()=>{throw new Error('limiter unavailable');}};assert.equal((await f.publish()).status,503);
   delete f.env.ADMIN_LOGIN_LIMITER;assert.equal((await f.publish()).status,503);
-  f.env.ADMIN_LOGIN_LIMITER={limit:async()=>({success:true})};f.env.ADMIN_ACCESS_CODE_SHA256=hash(randomBytes(32).toString('base64url'));
+  f.env.ADMIN_LOGIN_LIMITER={limit:async()=>({success:true})};f.env.ADMIN_ACCESS_CODE=randomBytes(32).toString('base64url');
   assert.equal((await f.publish()).status,401);assert.equal((await f.call('/api/admin/session',{cookie:f.cookie})).status,401);
   assert.equal(f.kv.writes.length,0);assert.equal(f.kv.values.get('schedule:active').value,a);
   const g=await fixture();await g.call('/api/admin/logout',{method:'POST',body:{},cookie:g.cookie});assert.equal((await g.publish()).status,401);

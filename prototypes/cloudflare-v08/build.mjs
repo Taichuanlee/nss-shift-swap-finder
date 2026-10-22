@@ -36,7 +36,7 @@ export async function build() {
 }
 export async function setupLocalSecrets() {
   const code=randomBytes(24).toString('base64url');
-  const secrets={accessCode:code,ACCESS_CODE_SHA256:createHash('sha256').update(code).digest('hex')};
+  const secrets={accessCode:code};
   // Never overwrite existing device credentials or print them in logs.
   try {await writeFile(path.join(directory,'dist/local-secrets.json'),JSON.stringify(secrets,null,2),{flag:'wx',mode:0o600});}
   catch(error) {if(error.code!=='EEXIST')throw error;}

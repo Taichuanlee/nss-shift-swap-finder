@@ -7,7 +7,7 @@ const hash=value=>createHash('sha256').update(value).digest('hex');
 let address=0;
 function fixture() {
   const code=randomBytes(24).toString('base64url'),kv=new MemoryKV();kv.values.set('schedule:active',{value:a});
-  const env={SCHEDULE_KV:kv,LOGIN_LIMITER:{limit:async()=>({success:true})},ACCESS_CODE_SHA256:hash(code),SESSION_TTL_SECONDS:3600};
+  const env={SCHEDULE_KV:kv,LOGIN_LIMITER:{limit:async()=>({success:true})},ACCESS_CODE:code,SESSION_TTL_SECONDS:3600};
   const ip=`test-${++address}`;
   const call=(pathname,{method='GET',body,cookie,origin='https://test.example',headers={}}={})=>worker.fetch(new Request(`https://test.example${pathname}`,{
     method,headers:{'CF-Connecting-IP':ip,...(method==='POST'?{Origin:origin,'Content-Type':'application/json'}:{}),...(cookie?{Cookie:cookie}:{}),...headers},
@@ -21,7 +21,7 @@ test('unauthorized reads are denied before touching the schedule; public pages c
   assert.equal(f.kv.reads.length,0);
   for(const route of ['/','/app.js']) {
     const response=await f.call(route);assert.equal(response.status,200);const text=await response.text();
-    assert.ok(!text.includes(f.code));assert.ok(!text.includes(f.env.ACCESS_CODE_SHA256));assert.ok(!text.includes('SYNTHETIC001'));
+    assert.ok(!text.includes(f.code));assert.ok(!text.includes(f.env.ACCESS_CODE));assert.ok(!text.includes('SYNTHETIC001'));
     assert.match(response.headers.get('Content-Security-Policy'),/frame-ancestors 'none'/);
   }
 });
@@ -63,7 +63,7 @@ test('logout clears the cookie and deletes the KV session; missing config and KV
   const r=await f.call('/api/logout',{method:'POST',body:{},cookie});assert.equal(r.status,200);assert.match(r.headers.get('Set-Cookie'),/Max-Age=0/);
   assert.equal((await f.call('/api/schedule',{cookie})).status,401);
   f.kv.fail=true;assert.equal((await f.call('/api/session',{cookie})).status,503);
-  delete f.env.ACCESS_CODE_SHA256;assert.equal((await f.call('/api/login',{method:'POST',body:{code:f.code}})).status,503);
+  delete f.env.ACCESS_CODE;assert.equal((await f.call('/api/login',{method:'POST',body:{code:f.code}})).status,503);
 });
 test('bad schemas, unconfirmed cycles, ordinary identities and oversized schedules are rejected',async()=>{
   const f=fixture(),cookie=await f.login();
@@ -101,4 +101,26 @@ test('authenticated requests still reject cross-origin reads/logout and HTTP; to
   assert.equal((await f.call('/api/logout',{method:'POST',body:{},cookie,origin:'https://evil.example'})).status,403);
   const r=await f.call('/api/schedule',{cookie});assert.equal(r.status,200);assert.ok(!(await r.text()).includes(token));
   assert.equal((await worker.fetch(new Request('http://test.example/api/schedule'),f.env)).status,400);
+});
+
+// Passwords below are generated per run; no operator credentials are stored.
+test('direct short nurse secret: leading zeros, rotation, legacy sessions and no hash fallback',async()=>{
+  const f=fixture(),short='0'+String(crypto.getRandomValues(new Uint32Array(1))[0]%10000).padStart(4,'0');
+  f.env.ACCESS_CODE=short;
+  const r=await f.call('/api/login',{method:'POST',body:{code:short}});assert.equal(r.status,200);
+  const cookie=r.headers.get('set-cookie').split(';')[0];
+  assert.equal((await f.call('/api/session',{cookie})).status,200);
+  const key=f.kv.writes.at(-1).key,stored=f.kv.values.get(key).value;
+  assert.ok(!stored.includes(short));
+  const legacy=JSON.parse(stored);delete legacy.credentialTag;f.kv.values.set(key,{value:JSON.stringify(legacy)});
+  assert.equal((await f.call('/api/session',{cookie})).status,401);
+  f.kv.values.set(key,{value:stored});f.env.ACCESS_CODE=short+'0';
+  assert.equal((await f.call('/api/session',{cookie})).status,401);
+  assert.equal((await f.call('/api/login',{method:'POST',body:{code:short}})).status,401);
+  assert.equal((await f.call('/api/login',{method:'POST',body:{code:f.env.ACCESS_CODE}})).status,200);
+  f.env.ACCESS_CODE_SHA256=hash(short);delete f.env.ACCESS_CODE;
+  assert.equal((await f.call('/api/login',{method:'POST',body:{code:short}})).status,503);
+  for(const invalid of ['',123456,'x'.repeat(4),'x'.repeat(129)]) {
+    f.env.ACCESS_CODE=invalid;assert.equal((await f.call('/api/login',{method:'POST',body:{code:short}})).status,503);
+  }
 });

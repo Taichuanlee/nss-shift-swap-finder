@@ -3,21 +3,21 @@ import {readFile,writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {createRequire} from 'node:module';
-import {createHash,randomBytes} from 'node:crypto';
+import {randomBytes} from 'node:crypto';
 import {directory,setupLocalSecrets} from './build.mjs';
 import {buildIntegrated} from './build-integrated.mjs';
 import {MemoryKV,MemoryLimiter,prepare,startLocal} from './local-harness.mjs';
 const {a}=await prepare(),pack=await buildIntegrated();await setupLocalSecrets();
 const nurse=JSON.parse(await readFile(path.join(directory,'dist/local-secrets.json'),'utf8'));
 const adminPath=path.join(directory,'dist/local-admin-secrets.json');
-const code=randomBytes(32).toString('base64url'),sha=value=>createHash('sha256').update(value).digest('hex');
-try {await writeFile(adminPath,JSON.stringify({code,ADMIN_ACCESS_CODE_SHA256:sha(code)},null,2),{flag:'wx',mode:0o600});}
+const code=randomBytes(32).toString('base64url');
+try {await writeFile(adminPath,JSON.stringify({code},null,2),{flag:'wx',mode:0o600});}
 catch(error){if(error.code!=='EEXIST')throw error;}
 const admin=JSON.parse(await readFile(adminPath,'utf8'));
-if(typeof admin.code!=='string'||admin.code.length<32||sha(admin.code)!==admin.ADMIN_ACCESS_CODE_SHA256)throw new Error('Local admin credential file is invalid.');
+if(typeof admin.code!=='string'||admin.code.length<5||admin.code.length>128)throw new Error('Local admin credential file is invalid.');
 const kv=new MemoryKV();kv.values.set('schedule:active',{value:a});
 const worker=(await import(pathToFileURL(path.join(pack.output,'worker.mjs')).href)).default;
-const env={SCHEDULE_KV:kv,ACCESS_CODE_SHA256:nurse.ACCESS_CODE_SHA256,ADMIN_ACCESS_CODE_SHA256:admin.ADMIN_ACCESS_CODE_SHA256,
+const env={SCHEDULE_KV:kv,ACCESS_CODE:nurse.accessCode,ADMIN_ACCESS_CODE:admin.code,
   LOGIN_LIMITER:new MemoryLimiter(),ADMIN_LOGIN_LIMITER:new MemoryLimiter(),SYNTHETIC_ONLY:'true',ASSETS:{fetch:async request=>{
     const file=new URL(request.url).pathname.slice(1);
     if(!pack.inventory.includes(file))return new Response('not found',{status:404});

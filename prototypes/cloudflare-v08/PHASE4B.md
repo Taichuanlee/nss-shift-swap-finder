@@ -1,3 +1,5 @@
+> 部署前登入調整：現行密碼設定、輪替與遷移以 [LOGIN.md](LOGIN.md) 為準。下方長隨機碼與 SHA256 Secret 要求是 c977ecc 階段的歷史紀錄，已由直接 Secret 密碼取代。
+
 # V0.8 Phase 4B：單一有效班表發布
 
 採用既有 Worker + 私人 Workers KV，不新增 Durable Object、D1、R2、發布佇列、鎖定服務或歷史版本。僅 `dev/v0.8` 本機實作；沒有 Commit、Push 或部署。Phase 4A 文件保留為前一階段紀錄，發布行為以本文件為準。

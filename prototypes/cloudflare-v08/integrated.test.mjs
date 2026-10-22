@@ -16,7 +16,7 @@ const worker=(await import(pathToFileURL(path.join(pack.output,'worker.mjs')).hr
 const mime=file=>file.endsWith('.html')?'text/html':/\.m?js$/.test(file)?'text/javascript':file.endsWith('.css')?'text/css':'application/octet-stream';
 function fixture() {
   const code=randomBytes(24).toString('base64url'),kv=new MemoryKV();kv.values.set('schedule:active',{value:a});
-  const env={LOGIN_LIMITER:{limit:async()=>({success:true})},ACCESS_CODE_SHA256:createHash('sha256').update(code).digest('hex'),SCHEDULE_KV:kv,SESSION_TTL_SECONDS:3600,
+  const env={LOGIN_LIMITER:{limit:async()=>({success:true})},ACCESS_CODE:code,SCHEDULE_KV:kv,SESSION_TTL_SECONDS:3600,
     ASSETS:{fetch:async request=>{
       let file=new URL(request.url).pathname.slice(1)||'index.html';
       if(!pack.inventory.includes(file))return new Response('not found',{status:404});

@@ -8,7 +8,8 @@
       <p class="confirmation-help">登入後載入管理者已確認的班表，再選擇自己開始搜尋。載入或切換來源會清除目前的身分確認、個人修正與搜尋結果。</p>
       <form id="central-login">
         <label for="central-code">單位共用存取碼</label>
-        <input id="central-code" type="password" required maxlength="128" autocomplete="off">
+        <input id="central-code" type="password" required minlength="5" maxlength="128" inputmode="numeric" aria-describedby="central-code-hint" autocomplete="off">
+        <p id="central-code-hint" class="confirmation-help">請輸入內科電話號碼</p>
         <button class="confirm-button" type="submit">登入並載入</button>
       </form>
       <div class="confirmation-actions">

@@ -14,8 +14,8 @@ const {pdf,grid,dates,metadataGrid}=require('../../tests/fixtures.cjs');
 const pack=await buildIntegrated(),worker=(await import(pathToFileURL(path.join(pack.output,'worker.mjs')).href)).default;
 const hash=value=>createHash('sha256').update(value).digest('hex');
 function fixture() {
-  const code=randomBytes(32).toString('base64url'),nurse=randomBytes(32).toString('base64url'),kv=new MemoryKV(),calls=[];
-  const env={SCHEDULE_KV:kv,LOGIN_LIMITER:{limit:async()=>({success:true})},ACCESS_CODE_SHA256:hash(nurse),ADMIN_ACCESS_CODE_SHA256:hash(code),
+  const code='0'+String(crypto.getRandomValues(new Uint32Array(1))[0]%10000).padStart(4,'0'),nurse='1'+String(crypto.getRandomValues(new Uint32Array(1))[0]%100000).padStart(5,'0'),kv=new MemoryKV(),calls=[];
+  const env={SCHEDULE_KV:kv,LOGIN_LIMITER:{limit:async()=>({success:true})},ACCESS_CODE:nurse,ADMIN_ACCESS_CODE:code,
     ADMIN_LOGIN_LIMITER:{limit:async({key})=>{calls.push(key);return {success:true};}},ASSETS:{fetch:async request=>{
       const file=new URL(request.url).pathname.slice(1)||'index.html';if(!pack.inventory.includes(file))return new Response('missing',{status:404});
       return new Response(request.method==='HEAD'?null:await readFile(path.join(pack.assets,file)),{headers:{'Content-Type':file.endsWith('.html')?'text/html':file.endsWith('.css')?'text/css':/\.m?js$/.test(file)?'text/javascript':'application/octet-stream'}});
@@ -76,9 +76,9 @@ test('admin limiter/configuration fails closed without changing nurse access',as
   assert.equal((await post(f,'/api/admin/login',f.code)).status,429);
   f.env.ADMIN_LOGIN_LIMITER={limit:async()=>{throw new Error('offline');}};
   assert.equal((await post(f,'/api/admin/login',f.code)).status,503);
-  f.env.ADMIN_LOGIN_LIMITER={limit:async()=>({success:true})};f.env.ADMIN_ACCESS_CODE_SHA256=f.env.ACCESS_CODE_SHA256;
+  f.env.ADMIN_LOGIN_LIMITER={limit:async()=>({success:true})};f.env.ADMIN_ACCESS_CODE=f.env.ACCESS_CODE;
   assert.equal((await post(f,'/api/admin/login',f.nurse)).status,503);
-  f.env.ADMIN_ACCESS_CODE_SHA256=hash(f.code);f.env.ADMIN_SESSION_TTL_SECONDS=3601;
+  f.env.ADMIN_ACCESS_CODE=f.code;f.env.ADMIN_SESSION_TTL_SECONDS=3601;
   assert.equal((await post(f,'/api/admin/login',f.code)).status,503);
 });
 test('admin browser: local Excel/PDF import, explicit repeated-date correction, full readonly preview and expiry cleanup',async()=>{
@@ -220,4 +220,20 @@ test('admin publication browser: one-click update, nurse reload, duplicate click
     assert.equal(f.kv.values.get('schedule:active').value,before);assert.equal(posts.length,3);
     assert.deepEqual(errors,[]);
   }finally {await browser?.close();await server.close();}
+});
+
+test('password changes revoke only their own role; legacy admin hash is not a fallback',async()=>{
+  const f=fixture();
+  const n=await post(f,'/api/login',f.nurse),a=await post(f,'/api/admin/login',f.code);
+  const nc=n.headers.get('set-cookie').split(';')[0],ac=a.headers.get('set-cookie').split(';')[0];
+  f.env.ADMIN_ACCESS_CODE=f.code+'a';
+  assert.equal((await call(f,'/api/admin/session',{headers:{Cookie:ac}})).status,401);
+  assert.equal((await call(f,'/api/session',{headers:{Cookie:nc}})).status,200);
+  assert.equal((await post(f,'/api/admin/login',f.code)).status,401);
+  const next=await post(f,'/api/admin/login',f.env.ADMIN_ACCESS_CODE);assert.equal(next.status,200);
+  const nextCookie=next.headers.get('set-cookie').split(';')[0];f.env.ACCESS_CODE=f.nurse+'0';
+  assert.equal((await call(f,'/api/session',{headers:{Cookie:nc}})).status,401);
+  assert.equal((await call(f,'/api/admin/session',{headers:{Cookie:nextCookie}})).status,200);
+  f.env.ADMIN_ACCESS_CODE_SHA256=hash(f.code);delete f.env.ADMIN_ACCESS_CODE;
+  assert.equal((await post(f,'/api/admin/login',f.code)).status,503);
 });
