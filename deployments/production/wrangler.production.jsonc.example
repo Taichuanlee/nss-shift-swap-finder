@@ -1,0 +1,50 @@
+{
+  "name": "nss-ssf",
+  "account_id": "REPLACE_WITH_VERIFIED_PRODUCTION_ACCOUNT_ID",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-10-20",
+  "workers_dev": true,
+  "preview_urls": false,
+  "keep_vars": false,
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+    "html_handling": "none"
+  },
+  "vars": {
+    "SYNTHETIC_ONLY": "false",
+    "SESSION_TTL_SECONDS": "3600",
+    "ADMIN_SESSION_TTL_SECONDS": "3600"
+  },
+  "secrets": {
+    "required": [
+      "ACCESS_CODE",
+      "ADMIN_ACCESS_CODE"
+    ]
+  },
+  "kv_namespaces": [
+    {
+      "binding": "SCHEDULE_KV",
+      "id": "REPLACE_WITH_NEW_EMPTY_PRODUCTION_KV_ID"
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "LOGIN_LIMITER",
+      "namespace_id": "REPLACE_WITH_VERIFIED_UNUSED_LOGIN_NAMESPACE_ID",
+      "simple": {
+        "limit": 50,
+        "period": 60
+      }
+    },
+    {
+      "name": "ADMIN_LOGIN_LIMITER",
+      "namespace_id": "REPLACE_WITH_VERIFIED_UNUSED_ADMIN_NAMESPACE_ID",
+      "simple": {
+        "limit": 5,
+        "period": 60
+      }
+    }
+  ]
+}
