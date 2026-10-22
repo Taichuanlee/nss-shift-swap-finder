@@ -4,12 +4,13 @@
   "main": "dist/worker.mjs",
   "compatibility_date": "2026-10-20",
   "workers_dev": true,
+  "secrets": { "required": ["ACCESS_CODE", "ADMIN_ACCESS_CODE"] },
   "vars": { "SESSION_TTL_SECONDS": "3600", "SYNTHETIC_ONLY": "true" },
   "kv_namespaces": [
     { "binding": "SCHEDULE_KV", "id": "745fd00938e14081823e0b5a9239ffcd" }
   ],
   "ratelimits": [
-    { "name": "LOGIN_LIMITER", "namespace_id": "8808", "simple": { "limit": 5, "period": 60 } },
+    { "name": "LOGIN_LIMITER", "namespace_id": "8808", "simple": { "limit": 50, "period": 60 } },
     { "name": "ADMIN_LOGIN_LIMITER", "namespace_id": "8809", "simple": { "limit": 5, "period": 60 } }
   ]
 }

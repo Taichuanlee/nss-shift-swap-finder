@@ -37,6 +37,6 @@
 ## 部署設定
 
 本機建置模板已填入使用者提供的現有測試 namespace ID `745fd00938e14081823e0b5a9239ffcd`；尚未從 Cloudflare 帳號驗證。
-保留 `keep_vars:true`、`ASSETS`、`run_worker_first:true`、`html_handling:none`、`LOGIN_LIMITER` 8808、`ADMIN_LOGIN_LIMITER` 8809（各 key 5/60 秒）及 synthetic-only。管理發布沿用 `admin-publish` key。部署前仍須核對帳號、ID、namespace 衝突、免費額度及全部既有 bindings。
+保留 `keep_vars:true`、`ASSETS`、`run_worker_first:true`、`html_handling:none`、`LOGIN_LIMITER` 8808（每 key 50/60 秒）、`ADMIN_LOGIN_LIMITER` 8809（每 key 5/60 秒）及 synthetic-only。管理發布沿用 `admin-publish` key。部署前仍須核對帳號、ID、namespace 衝突、免費額度及全部既有 bindings。
 
 舊部署包不包含本次變更，必須重新產生；此調整不會自行部署或修改線上設定。

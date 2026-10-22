@@ -28,7 +28,8 @@ test('admin auth: separate credentials/roles, protected aliases, Origin, limits,
   const f=fixture();
   const config=JSON.parse(await readFile(path.join(pack.output,'wrangler.jsonc'),'utf8'));
   assert.equal(config.assets.run_worker_first,true);assert.equal(config.assets.html_handling,'none');
-  assert.ok(config.ratelimits.some(r=>r.name==='ADMIN_LOGIN_LIMITER'&&r.simple.limit===5));assert.ok(config.ratelimits.some(r=>r.name==='LOGIN_LIMITER'));
+  assert.ok(config.ratelimits.some(r=>r.name==='ADMIN_LOGIN_LIMITER'&&r.simple.limit===5));assert.ok(config.ratelimits.some(r=>r.name==='LOGIN_LIMITER'&&r.namespace_id==='8808'&&r.simple.limit===50&&r.simple.period===60));
+  assert.deepEqual(config.secrets.required,['ACCESS_CODE','ADMIN_ACCESS_CODE']);
   assert.equal(config.keep_vars,true);assert.ok(!JSON.stringify(config).includes(f.code));
   for(const route of ['/admin','/admin/','/admin.html'])assert.equal((await call(f,route)).status,303);
   assert.equal((await call(f,'/admin/login')).status,200);

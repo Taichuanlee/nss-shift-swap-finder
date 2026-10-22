@@ -55,7 +55,8 @@ export async function buildIntegrated() {
     compatibility_date:'2026-10-20',workers_dev:true,keep_vars:true,
     assets:{directory:'./public',binding:'ASSETS',run_worker_first:true,html_handling:'none'},
     vars:{SYNTHETIC_ONLY:'true'},
-    ratelimits:[{name:'LOGIN_LIMITER',namespace_id:'8808',simple:{limit:5,period:60}},{name:'ADMIN_LOGIN_LIMITER',namespace_id:'8809',simple:{limit:5,period:60}}],
+    secrets:{required:['ACCESS_CODE','ADMIN_ACCESS_CODE']},
+    ratelimits:[{name:'LOGIN_LIMITER',namespace_id:'8808',simple:{limit:50,period:60}},{name:'ADMIN_LOGIN_LIMITER',namespace_id:'8809',simple:{limit:5,period:60}}],
     kv_namespaces:[{binding:'SCHEDULE_KV',id:'745fd00938e14081823e0b5a9239ffcd'}]},null,2));
   await writeFile(path.join(output,'asset-inventory.json'),JSON.stringify(inventory.sort(),null,2));
   return {output,assets,inventory};
