@@ -4,6 +4,7 @@ const {dates,items}=require('./fixtures.cjs');
 const ctx={window:{},Date,Set};vm.createContext(ctx);
 for(const f of ['schedule-model','schedule-validator','import-confirmation','schedule-publication','personal-schedule','swap-engine','pdf-parser','excel-parser'])vm.runInContext(fs.readFileSync(`js/${f}.js`,'utf8'),ctx);
 vm.runInContext(fs.readFileSync('vendor/sheetjs/xlsx.full.min.js','utf8'),ctx);ctx.window.XLSX=ctx.XLSX;
+const id=(m,number)=>m.employees.find(e=>e.employeeNumber===number).id;
 const ns=ctx.window.NSSShiftSwapFinder,ds=dates(40,Date.UTC(2026,10,4));
 function rows(){return [['Synthetic 2026-11-09 ~ 2026-12-06'],['ID','Name',...ds],['SELF','Fictional Self',...ds.map((_,i)=>i===8?'A':'OF')],['OTHER','Fictional Other',...ds.map((_,i)=>i===15?'A':'O')],['EMPTY','Fictional Empty',...ds.map(()=> '')]];}
 function ready(m){ns.ImportConfirmation.initialize(m,{autoCorrect:false});ns.ImportConfirmation.setCycleStart(m,ds[5]);assert.equal(ns.ImportConfirmation.confirmCycle(m),true);return m;}
@@ -23,9 +24,9 @@ test('Excel XLS/XLSX and publication round trip preserve blank values and every 
   const bytes=XLSX.write(book,{type:'array',bookType:type});const m=ready(await ns.ExcelParser.parse({arrayBuffer:async()=>bytes}));
   const p=ns.SchedulePublication.create(m),loaded=ns.SchedulePublication.load(p);
   assert.equal(loaded.employees.length,3);assert.ok(ds.every(d=>p.employees[2].shifts[d]===''));assert.equal(p.employees[0].shifts[ds[0]],'');
-  assert.equal(ns.PersonalSchedule.calendar(loaded,'EMPTY')[0].kind,'blank');assert.equal(ns.SwapEngine.options(loaded,'EMPTY').workDates.length,0);
-  assert.equal(ns.SwapEngine.search(loaded,'SELF',ds[8],[ds[15]])[0].results.length,1);
-  const correction=ns.PersonalSchedule.createCorrections(loaded,'EMPTY');assert.throws(()=>correction.set(ds[5],'O'));
+  assert.equal(ns.PersonalSchedule.calendar(loaded,id(loaded,'EMPTY'))[0].kind,'blank');assert.equal(ns.SwapEngine.options(loaded,id(loaded,'EMPTY')).workDates.length,0);
+  assert.equal(ns.SwapEngine.search(loaded,id(loaded,'SELF'),ds[8],[ds[15]])[0].results.length,1);
+  const correction=ns.PersonalSchedule.createCorrections(loaded,id(loaded,'EMPTY'));assert.throws(()=>correction.set(ds[5],'O'));
  }
 });
 test('known swaps survive distant blanks; unknown swapped days and risk neighborhoods are excluded',()=>{

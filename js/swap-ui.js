@@ -68,7 +68,7 @@
           section.append(element('h3',`交換日期 ${group.exchangeDate} · ${group.results.length} 位同仁`));
           for(const result of group.results) {
             total++;const card=root.createElement('article');card.className='swap-candidate';
-            card.append(element('h4',`${result.name} · 員工編號 ${result.employeeId}`),element('p','同班別交換','swap-tag'));
+            card.append(element('h4',`${ns.PersonalSchedule.label(ns.PersonalSchedule.uniqueEmployee(model,result.employeeId))} · ${ns.PersonalSchedule.sourceLabel(ns.PersonalSchedule.uniqueEmployee(model,result.employeeId))}`),element('p','同班別交換','swap-tag'));
             const changes=root.createElement('div');changes.className='swap-changes';
             for(const [role,detail] of [['您',result.self],['對方',result.other]]) {
               const column=root.createElement('div');column.append(element('strong',role));
@@ -81,7 +81,7 @@
             const preview=root.createElement('div');preview.className='candidate-preview';preview.hidden=true;
             preview.id=`candidate-preview-${++previewSequence}`;
             toggle.setAttribute('aria-expanded','false');toggle.setAttribute('aria-controls',preview.id);
-            toggle.setAttribute('aria-label',`查看 ${result.name}（${result.employeeId}）四週期班表，交換日期 ${result.exchangeDate}`);
+            toggle.setAttribute('aria-label',`查看 ${result.name}四週期班表，交換日期 ${result.exchangeDate}`);
             let rendered=false;
             toggle.addEventListener('click',()=>{
               const expanded=toggle.getAttribute('aria-expanded')==='true';
@@ -96,7 +96,7 @@
               }
               preview.hidden=expanded;toggle.setAttribute('aria-expanded',String(!expanded));
               toggle.textContent=expanded?'查看對方四週期班表':'收合對方四週期班表';
-              toggle.setAttribute('aria-label',`${expanded?'查看':'收合'} ${result.name}（${result.employeeId}）四週期班表，交換日期 ${result.exchangeDate}`);
+              toggle.setAttribute('aria-label',`${expanded?'查看':'收合'} ${result.name}四週期班表，交換日期 ${result.exchangeDate}`);
             });
             card.append(toggle,preview);
             section.append(card);
@@ -104,7 +104,7 @@
           if(!group.results.length) {
             section.append(element('p','此日期沒有符合條件的同仁。'));
             const excluded=group.excluded;
-            section.append(element('p',`未符合：雙向條件 ${excluded.direction} 位、班別不同 ${excluded.shift} 位、連續上班限制 ${excluded.consecutive} 位、資料無效 ${excluded.invalid} 位。`,'confirmation-help'));
+            section.append(element('p',`未符合：雙向條件 ${excluded.direction} 位、班別不同 ${excluded.shift} 位、連續上班限制 ${excluded.consecutive} 位、資料無效或未知 ${excluded.invalid} 位、邊界參考不足 ${excluded.context} 位。`,'confirmation-help'));
           }
           output.append(section);
         }

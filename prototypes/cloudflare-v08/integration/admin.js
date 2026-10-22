@@ -12,6 +12,7 @@
     $('sheet-picker').hidden=true;$('admin-sheet').replaceChildren();$('admin-preview').replaceChildren();
     $('admin-cycle-start').value='';$('admin-cycle-start').disabled=true;$('admin-cycle-end').textContent='—';
     $('admin-confirm-cycle').disabled=true;$('cycle-status').textContent='';$('cycle-proposal').textContent='匯入後提供建議，仍需管理者確認。';
+    $('admin-year-controls').hidden=true;$('admin-year').value='';
     $('admin-errors').textContent='尚未匯入';$('import-status').textContent='尚未匯入';
   }
   function active() {
@@ -49,7 +50,10 @@
       for(const issue of issues)details.append(node('p',`${issue.employeeId||''} ${issue.message} ${sourceText(issue.source)}`));area.append(details);
     }
     if(!model.validation.cycleLengthValid||!model.validation.cycleDatesComplete)area.append(node('p','四週期必須完整涵蓋已匯入的連續 28 天，請調整起始日。','invalid'));
+    if(model.needsYearConfirmation)area.append(node('p','PDF 未提供可確定的年份，請先明確確認西元年份；不依檔名或目前年份推定。','invalid'));
+    if(model.requiresPublicationV2)area.append(node('p','此班表包含未提供員編的獨立紀錄；使用 publication v2 發布，姓名相同也不會自動合併。'));
     if(!model.cycleConfirmed)area.append(node('p','尚未確認正式四週期。','invalid'));
+    if(model.warnings.some(w=>w.code==='SAME_NAME_RECORDS'))area.append(node('p','有同名人員，已保留獨立紀錄；請檢查姓名列的來源頁／列與班表，不會自動合併。'));
     const blanks=model.warnings.filter(w=>w.code==='BLANK_SHIFT');
     if(blanks.length)area.append(node('p',`資料不完整：${blanks.length} 個班別為未知／未排定；保留所有人員，不阻止發布。整排空白者不參與搜尋，涉及未知日期的交換候選將排除。`));
     if(!area.childNodes.length)area.append(node('p','無未解決的關鍵錯誤。'));
@@ -57,16 +61,16 @@
   function renderPreview() {
     const table=node('table',''),head=node('thead',''),row=node('tr',''),body=node('tbody','');
     const inside=date=>date>=model.cycleStartDate&&date<=model.cycleEndDate;
-    row.append(node('th','員工編號 / 姓名','identity'));
+    row.append(node('th','姓名 / 員工編號（選填）','identity'));
     for(const date of model.scheduleDates) {
       const th=node('th',`${date}\n${inside(date)?'正式四週期':'週期外'}`,inside(date)?'official':'outside');
       th.title=model.dateColumns.filter(c=>c.date===date).map(c=>`原始日期：${c.raw} (${sourceText(c.source)})`).join('\n');row.append(th);
     }
-    const unresolved=[...(model.pdfUnresolvedColumns||[]),...model.dateColumns.filter(c=>!c.date).map(c=>({rawHeader:c.raw,source:c.source,values:[]}))];
+    const unresolved=[...(model.pdfUnresolvedColumns||[]),...model.dateColumns.filter(c=>!c.date).map(c=>({rawHeader:c.raw,source:c.source,values:model.employees.flatMap(e=>(e.pendingShifts||[]).filter(v=>v.tableIndex===c.tableIndex&&v.headerRow===c.headerRow&&v.index===c.index).map(v=>({employeeId:e.id,rawShift:v.raw})))}))];
     for(const col of unresolved)row.append(node('th',`未辨識：${col.rawHeader}`,'invalid'));
     head.append(row);
     for(const employee of model.employees) {
-      const tr=node('tr','');tr.append(node('th',`${employee.id} / ${employee.name}`,'identity'));
+      const tr=node('tr','');tr.title=(employee.sourceRows||[]).map(r=>sourceText(r.source)).join('\n');tr.append(node('th',`${employee.name} / ${employee.employeeNumber===null?'未提供員編':employee.employeeNumber ?? employee.id}${employee.employeeNumber===null?'（獨立紀錄）':''}`,'identity'));
       for(const date of model.scheduleDates) {
         const details=employee.shiftDetails[date]||[],conflict=new Set(details.map(d=>d.normalized)).size>1;
         const td=node('td',conflict?details.map(d=>d.raw||'（空白）').join(' / '):employee.shifts[date]||'未知／未排定',inside(date)?'official':'outside');
@@ -85,6 +89,7 @@
   }
   function render() {
     ns.Validator.validate(model);$('admin-cycle-start').disabled=false;
+    $('admin-year-controls').hidden=!model.needsYearConfirmation&&model.confirmedYear===null;
     $('admin-cycle-end').textContent=model.cycleEndDate||'—';$('admin-confirm-cycle').disabled=model.cycleConfirmed;
     $('cycle-status').textContent=model.cycleConfirmed?'四週期已確認，背景驗證通過。':'請確認日期修正及正式四週期。';
     renderErrors();renderPreview();
@@ -93,7 +98,7 @@
   async function parse(sheetName) {
     if(publishing||!file||!active())return;
     resetPublication();$('admin-publish').disabled=true;
-    const selected=file,token=++generation;model=null;$('admin-preview').replaceChildren();$('admin-errors').textContent='解析與驗證中…';
+    const selected=file,token=++generation;model=null;$('admin-year-controls').hidden=true;$('admin-year').value='';$('admin-preview').replaceChildren();$('admin-errors').textContent='解析與驗證中…';
     $('admin-cycle-start').disabled=true;$('admin-cycle-start').value='';$('admin-cycle-end').textContent='—';$('cycle-status').textContent='';$('admin-confirm-cycle').disabled=true;$('import-status').textContent='正在本機解析，檔案不會上傳…';
     $('sheet-picker').hidden=true;
     try {
@@ -119,6 +124,7 @@
     $('admin-publish').textContent=publishing?'處理中…':publicationState==='unknown'?'重新確認發布結果':publicationState==='success'?'已發布':'確認發布';
     $('admin-publish').disabled=publishing||!authorized||!model?.validation.readyForSearch||publicationState==='success';
     $('admin-file').disabled=publishing||!authorized;
+    $('admin-year').disabled=publishing||!model;$('admin-confirm-year').disabled=publishing||!model;
     $('admin-cycle-start').disabled=publishing||!model;
     $('admin-confirm-cycle').disabled=publishing||!model||model.cycleConfirmed;
     $('admin-sheet').disabled=publishing;$('parse-sheet').disabled=publishing;
@@ -185,8 +191,9 @@
     file=selected;$('admin-file').disabled=false;parse();
   });
   $('parse-sheet').addEventListener('click',()=>parse($('admin-sheet').value));
-  $('admin-sheet').addEventListener('change',()=>{if(publishing)return;resetPublication();$('admin-publish').disabled=true;generation++;model=null;$('admin-preview').replaceChildren();$('admin-cycle-start').disabled=true;$('admin-cycle-start').value='';$('admin-cycle-end').textContent='—';$('cycle-status').textContent='';$('admin-confirm-cycle').disabled=true;$('admin-errors').textContent='工作表已變更，請重新解析。';});
+  $('admin-sheet').addEventListener('change',()=>{if(publishing)return;resetPublication();$('admin-publish').disabled=true;generation++;model=null;$('admin-year-controls').hidden=true;$('admin-year').value='';$('admin-preview').replaceChildren();$('admin-cycle-start').disabled=true;$('admin-cycle-start').value='';$('admin-cycle-end').textContent='—';$('cycle-status').textContent='';$('admin-confirm-cycle').disabled=true;$('admin-errors').textContent='工作表已變更，請重新解析。';});
   $('admin-cycle-start').addEventListener('change',()=>{if(!publishing&&model&&active()){resetPublication();C.setCycleStart(model,$('admin-cycle-start').value);render();}});
+  $('admin-confirm-year').addEventListener('click',()=>{if(publishing||!model||!active())return;try{resetPublication();model=C.confirmYear(model,$('admin-year').value);proposeCycle();render();}catch(error){$('cycle-status').textContent=error.message;}});
   $('admin-confirm-cycle').addEventListener('click',()=>{if(!publishing&&model&&active()){C.confirmCycle(model);render();}});
   window.addEventListener('admin-session-ended',clear);
   window.addEventListener('admin-session-ready',syncPublication);

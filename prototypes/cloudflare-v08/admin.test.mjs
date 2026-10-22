@@ -263,8 +263,55 @@ test('incomplete PDF/Excel preview can publish; nurse UI retains unknown days an
   await page.waitForFunction(()=>document.getElementById('central-status').textContent.includes('資料不完整'));
   const loaded=await page.evaluate(async()=>{
    const payload=(await (await fetch('/api/schedule')).json()).payload,ns=NSSShiftSwapFinder,m=ns.SchedulePublication.load(payload);
-   return {ids:m.employees.map(e=>e.id),empty:ns.PersonalSchedule.calendar(m,'SYNTHETIC002').every(d=>d.kind==='blank'),options:ns.SwapEngine.options(m,'SYNTHETIC002')};
+   return {ids:m.employees.map(e=>e.employeeNumber),empty:ns.PersonalSchedule.calendar(m,m.employees.find(e=>e.employeeNumber==='SYNTHETIC002').id).every(d=>d.kind==='blank'),options:ns.SwapEngine.options(m,m.employees.find(e=>e.employeeNumber==='SYNTHETIC002').id)};
   });
   assert.deepEqual(loaded.ids,['SYNTHETIC001','SYNTHETIC002']);assert.equal(loaded.empty,true);assert.deepEqual(loaded.options,{workDates:[],leaveDates:[]});assert.deepEqual(errors,[]);
  }finally {await browser?.close();await server.close();}
+});
+
+
+test('PDF year confirmation and no-number preview prepare v2 publication without writing',async()=>{
+ const f=fixture(),server=await startLocal(f.env,worker);let browser;
+ try{
+  browser=await chromium.launchPersistentContext(await mkdtemp(path.join(os.tmpdir(),'nss-phase1-')),{headless:true,ignoreHTTPSErrors:true,executablePath:process.env.CHROME_PATH||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});
+  const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.goto(server.origin+'/admin/login');await page.locator('#admin-code').fill(f.code);await page.locator('#admin-login button').click();await page.waitForURL('**/admin');await page.waitForFunction(()=>!document.getElementById('admin-file').disabled);
+  for(const missingNumber of [true,false]){
+   const rows=grid();rows[0]=['Synthetic schedule'];rows[1]=['ID','Name',...dates().map(d=>`${+d.slice(5,7)}/${+d.slice(8)}`)];
+   if(missingNumber){rows[1][0]='Unit';rows.slice(2).forEach(row=>{row[0]='Capability';row[1]='Fictional same name';});}
+   await page.locator('#admin-file').setInputFiles({name:'synthetic-year.pdf',mimeType:'application/pdf',buffer:pdf([rows])});
+   await page.waitForFunction(()=>document.querySelectorAll('#admin-preview tbody tr').length===2&&!document.getElementById('admin-year-controls').hidden);
+   assert.equal(await page.locator('#admin-year').inputValue(),'');assert.equal(await page.locator('#admin-publish').isDisabled(),true);
+   await page.locator('#admin-year').fill('2026');await page.locator('#admin-confirm-year').click();
+   await page.waitForFunction(()=>document.querySelectorAll('#admin-preview thead th.official').length===28);
+   await page.locator('#admin-confirm-cycle').click();assert.equal(await page.locator('#admin-publish').isDisabled(),false);
+   if(missingNumber){assert.match(await page.locator('#admin-errors').textContent(),/v2/);assert.match(await page.locator('#admin-errors').textContent(),/同名/);assert.ok(!(await page.locator('#admin-preview').textContent()).includes('local-record:'));}
+  }
+  assert.deepEqual(errors,[]);assert.equal(f.kv.writes.filter(w=>w.key==='schedule:active').length,0);
+ }finally{await browser?.close();await server.close();}
+});
+
+test('v2 browser: no-number same-name PDF publishes locally, nurse distinguishes source rows and previews before confirming',async()=>{
+ const f=fixture();f.env.SYNTHETIC_ONLY='false'; // Local memory doubles only; fictional fixture below.
+ const server=await startLocal(f.env,worker);let browser;
+ try{
+  browser=await chromium.launchPersistentContext(await mkdtemp(path.join(os.tmpdir(),'nss-v2-')),{headless:true,ignoreHTTPSErrors:true,executablePath:process.env.CHROME_PATH||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});
+  const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.goto(server.origin+'/admin/login');await page.locator('#admin-code').fill(f.code);await page.locator('#admin-login button').click();await page.waitForURL('**/admin');await page.waitForFunction(()=>!document.getElementById('admin-file').disabled);
+  const rows=grid(dates(40));rows[1][0]='Unit';rows.slice(2).forEach(r=>{r[0]='Capability';r[1]='合成同名';});
+  await page.locator('#admin-file').setInputFiles({name:'synthetic-no-number.pdf',mimeType:'application/pdf',buffer:pdf([rows])});
+  await page.waitForFunction(()=>document.querySelectorAll('#admin-preview tbody tr').length===2);
+  await page.locator('#admin-confirm-cycle').click();await page.locator('#admin-publish').click();
+  await page.waitForFunction(()=>document.getElementById('publish-status').textContent.startsWith('發布成功'));
+  const saved=JSON.parse(f.kv.values.get('schedule:active').value);assert.equal(saved.schemaVersion,2);assert.equal(saved.employees.length,2);assert.ok(saved.employees.every(e=>e.employeeNumber===null));assert.equal(saved.referenceDates.length,12);
+  await page.goto(server.origin+'/');await page.locator('#central-code').fill(f.nurse);await page.locator('#central-login button').click();
+  await page.waitForFunction(()=>document.getElementById('central-status').textContent.includes('單位班表已載入'));
+  await page.locator('#employee-search').fill('合成同名');assert.equal(await page.locator('.employee-option').count(),2);
+  const labels=await page.locator('.employee-option').allTextContents();assert.notEqual(labels[0],labels[1]);assert.ok(labels.every(t=>t.includes('未提供員編')&&t.includes('來源第 1 頁')&&!t.includes('local-record:')));
+  await page.locator('.employee-option').nth(1).click();assert.equal(await page.locator('#personal-schedule').isVisible(),false);assert.equal(await page.locator('#identity-review-weeks .personal-day').count(),28);
+  await page.locator('#confirm-identity').click();assert.equal(await page.locator('#personal-weeks .personal-day').count(),28);assert.doesNotMatch(await page.locator('#confirmed-name').textContent(),/local-record:/);
+  assert.equal(await page.evaluate(()=>localStorage.getItem(window.NSSShiftSwapFinder.PersonalSchedule.STORAGE_KEY)),null);
+  await page.reload();await page.waitForFunction(()=>document.getElementById('central-status').textContent.includes('單位班表已載入'));assert.equal(await page.locator('#remembered-identity').isVisible(),false);assert.equal(await page.locator('#personal-schedule').isVisible(),false);
+  assert.deepEqual(errors,[]);assert.equal(f.kv.writes.filter(w=>w.key==='schedule:active').length,1);
+ }finally{await browser?.close();await server.close();}
 });

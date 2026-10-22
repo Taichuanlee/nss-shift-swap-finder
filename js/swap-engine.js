@@ -91,12 +91,23 @@
     }
     return true;
   }
+  function contextKnown(model,employee,overrides) {
+    const dates=model.scheduleDates, all=new Set(dates);
+    // Four-day fragmentation windows require three actual context days on either side.
+    for(const day of Object.keys(overrides))for(let n=-3;n<=3;n++)if(!all.has(addDays(day,n)))return false;
+    // Full affected work runs must terminate in known leave, not at an unobserved edge.
+    for(const shifts of [employee.shifts,{...employee.shifts,...overrides}])for(const day of Object.keys(overrides)) {
+      const at=dates.indexOf(day);
+      for(const step of [-1,1]){let i=at+step;while(i>=0&&i<dates.length&&kind(shifts[dates[i]])==='work')i+=step;if(i<0||i>=dates.length)return false;}
+    }
+    return true;
+  }
   function search(model,id,wantedDate,exchangeDates) {
     const allowed=options(model,id), self=validEmployee(model,id);
     if(!allowed.workDates.includes(wantedDate)) throw new Error('想休日期必須是正式四週期內的 A／E／N 工作日。');
     if(!Array.isArray(exchangeDates)||!exchangeDates.length||exchangeDates.some(d=>!allowed.leaveDates.includes(d))) throw new Error('請選擇正式四週期內至少一個自己的休假日作為交換日期。');
     return [...new Set(exchangeDates)].sort().map(exchangeDate=>{
-      const group={exchangeDate,results:[],excluded:{invalid:0,direction:0,shift:0,consecutive:0}};
+      const group={exchangeDate,results:[],excluded:{invalid:0,direction:0,shift:0,consecutive:0,context:0}};
       for(const candidate of model.employees) {
         if(candidate.id===id) continue;
         const other=validEmployee(model,candidate.id);
@@ -110,6 +121,7 @@
         if(!assessmentKnown(model,self,selfChanges)||!assessmentKnown(model,other,otherChanges)){group.excluded.invalid++;continue;}
         const selfImpact=impact(model,self,selfChanges),otherImpact=impact(model,other,otherChanges);
         if(otherImpact.worsened) {group.excluded.consecutive++;continue;}
+        if(!contextKnown(model,self,selfChanges)||!contextKnown(model,other,otherChanges)){group.excluded.context++;continue;}
         const risks={consecutive:selfImpact.worsened,fragmented:selfImpact.fragmentation.worsened||otherImpact.fragmentation.worsened};
         const warnings=[];
         if(risks.consecutive) {

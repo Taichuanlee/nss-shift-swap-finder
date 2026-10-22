@@ -12,19 +12,26 @@
     const e = matches[0];
     return matches.length === 1 && typeof id === 'string' && id.trim() && !id.startsWith('unresolved-') && e.identityResolved && (e.validation?.complete || e.validation?.incomplete) ? e : null;
   }
+  function employeeNumber(e) {return e.employeeNumber===undefined?e.id:e.employeeNumber;}
+  function label(e) {const n=employeeNumber(e);return `${e.name} · ${n===null?'未提供員編':`員工編號：${n}`}`;}
+  function sourceLabel(e) {return (e.sourceRows||[]).map(r=>`來源${r.source?.page||r.page?`第 ${r.source?.page??r.page} 頁`:r.source?.sheet||r.sheet||'表格'}／第 ${(r.row??0)+1} 列`).join('；')||'舊版班表未提供來源列，請核對班表';}
   function search(model, query) {
     const q = query.trim().toLocaleLowerCase();
-    return !available(model) || !q ? [] : model.employees.filter(e => String(e.name).toLocaleLowerCase().includes(q) || String(e.id).toLocaleLowerCase().includes(q));
+    return !available(model) || !q ? [] : model.employees.filter(e => String(e.name).toLocaleLowerCase().includes(q) || String(employeeNumber(e)??'').toLocaleLowerCase().includes(q));
   }
   function remembered(storage, model) {
     try {
       const value = JSON.parse(storage.getItem(STORAGE_KEY));
-      return available(model) && value?.version === 1 && typeof value.id === 'string' ? uniqueEmployee(model, value.id) : null;
+      if(!available(model)||value?.version!==1||typeof value.id!=='string')return null;
+      const matches=model.employees.filter(e=>employeeNumber(e)!==null&&employeeNumber(e)===value.id);
+      return matches.length===1?uniqueEmployee(model,matches[0].id):null;
     } catch { return null; }
   }
   function remember(storage, model, id) {
     if (!available(model) || !uniqueEmployee(model,id)) return false;
-    try { storage.setItem(STORAGE_KEY, JSON.stringify({version:1,id})); return true; } catch { return false; }
+    const number=employeeNumber(uniqueEmployee(model,id));
+    if(number===null){try{storage?.removeItem(STORAGE_KEY);}catch{}return false;}
+    try { storage.setItem(STORAGE_KEY, JSON.stringify({version:1,id:number})); return true; } catch { return false; }
   }
   function calendar(model, id) {
     const employee = uniqueEmployee(model,id);
@@ -91,11 +98,10 @@
     let model=null, signature='', selectedId=null, confirmedId=null, corrections=null,editing=false,editDate=null;
     const editToggle=root.querySelector('#edit-schedule'),editor=root.querySelector('#shift-editor');
     function storage() { try { return window.localStorage; } catch { return null; } }
-    function label(employee) { return `${employee.name} · 員工編號：${employee.id}`; }
     function invalidate() {
       onInvalidated();
       corrections=null;editing=false;editDate=null;editor.hidden=true;editToggle.textContent='編輯班表';editToggle.setAttribute('aria-expanded','false');root.querySelector('#edit-controls').hidden=true;personal.classList.remove('editing');
-      selectedId=null; confirmedId=null; selection.hidden=true; personal.hidden=true; weeks.replaceChildren();
+      selectedId=null; confirmedId=null; selection.hidden=true; root.querySelector('#identity-review-weeks')?.replaceChildren(); personal.hidden=true; weeks.replaceChildren();
       picker.hidden=false; root.querySelector('#confirmed-identity').hidden=true;
       root.querySelector('#confirmed-name').textContent=''; root.querySelector('#identity-review-name').textContent='';
       root.querySelector('#personal-range').textContent='';
@@ -105,8 +111,9 @@
       const employee=uniqueEmployee(model,id);
       if (!available(model) || !employee) { message.textContent='此員工編號無法唯一辨識，請重新檢查匯入資料。'; return; }
       selectedId=id; selection.hidden=false;
-      root.querySelector('#identity-review-name').textContent=label(employee);
-      message.textContent='請核對姓名與員工編號，再按「確認這是我」。';
+      root.querySelector('#identity-review-name').textContent=`${label(employee)} · ${sourceLabel(employee)}`;
+      const preview=root.querySelector('#identity-review-weeks');if(preview)renderCalendar(root,preview,calendar(model,id));
+      message.textContent='請核對姓名、來源與下方班表，再按「確認這是我」。';
     }
     function renderSaved() {
       const employee=remembered(storage(),model); saved.hidden=!employee;
@@ -125,7 +132,7 @@
       message.textContent=!searchInput.value.trim() ? '請輸入姓名或員工編號搜尋。' : found.length ? `找到 ${found.length} 位同仁${found.length>30 ? '，先顯示前 30 位，請輸入更完整的姓名或編號' : ''}。請核對員工編號。` : '找不到符合的同仁，請確認姓名或員工編號。';
       for (const e of found.slice(0,30)) {
         const button=root.createElement('button'); button.type='button'; button.className='employee-option';
-        button.textContent=label(e); button.disabled=!uniqueEmployee(model,e.id);
+        button.textContent=`${label(e)} · ${sourceLabel(e)}`; button.disabled=!uniqueEmployee(model,e.id);
         button.addEventListener('click',()=>choose(e.id)); results.append(button);
       }
     });
@@ -135,12 +142,14 @@
       let days; try {days=calendar(model,selectedId);} catch(e) {invalidate(); message.textContent=e.message; return;}
       confirmedId=selectedId; const employee=uniqueEmployee(model,confirmedId);
       const persisted=remember(storage(),model,confirmedId);
-      picker.hidden=true; selection.hidden=true; root.querySelector('#confirmed-identity').hidden=false;
+      picker.hidden=true; selection.hidden=true; root.querySelector('#identity-review-weeks')?.replaceChildren(); root.querySelector('#confirmed-identity').hidden=false;
       root.querySelector('#confirmed-name').textContent=label(employee);
-      message.textContent=persisted ? '身分已確認。下次匯入仍會請您重新確認。' : '身分已確認；此瀏覽器無法記住身分，不影響本次查看。';
+      message.textContent=persisted ? '身分已確認。下次匯入仍會請您重新確認。' : employeeNumber(employee)===null?'身分已確認；未提供員編，下次載入須重新搜尋及確認。':'身分已確認；此瀏覽器無法記住身分，不影響本次查看。';
       root.querySelector('#personal-range').textContent=`${model.cycleStartDate} ～ ${model.cycleEndDate} · 共 28 天`;
       corrections=createCorrections(model,confirmedId);editing=false;editDate=null;editor.hidden=true;
       renderPersonal();
+      if(model.publication?.sourceEvidenceAvailable===false)message.textContent+=' 舊版班表未保留完整來源確認資訊；安全判斷僅使用已提供日期。';
+      message.textContent+=' 週期邊界或未知資料不足以完成安全判斷的候選會排除。';
       if(employee.validation.incomplete)message.textContent+=' 班表資料不完整：空白為未知／未排定，涉及未知日期的交換候選不提供。';
       personal.hidden=false; onConfirmed(corrections.effective(),confirmedId); guide(personal);
     });
@@ -184,5 +193,5 @@
     });
     return {setSchedule,invalidate};
   }
-  ns.PersonalSchedule=Object.freeze({STORAGE_KEY,available,uniqueEmployee,search,remembered,remember,calendar,createCorrections,renderCalendar,createController});
+  ns.PersonalSchedule=Object.freeze({STORAGE_KEY,employeeNumber,label,sourceLabel,available,uniqueEmployee,search,remembered,remember,calendar,createCorrections,renderCalendar,createController});
 })();

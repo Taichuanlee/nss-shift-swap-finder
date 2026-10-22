@@ -23,7 +23,7 @@ test('remember only unique confirmed ID, re-match current list, never name match
  const m=model(),s=storage(); assert.equal(P.remember(s,m,'EXAMPLE001'),true);
  assert.deepEqual(JSON.parse(s.getItem(P.STORAGE_KEY)),{version:1,id:'EXAMPLE001'});
  assert.equal(P.remembered(s,m).id,'EXAMPLE001');
- m.employees[0].id='CHANGED';assert.equal(P.remembered(s,m),null);
+ m.employees[0].id='CHANGED';assert.equal(P.remembered(s,m).id,'CHANGED');m.employees[0].employeeNumber='NEW';assert.equal(P.remembered(s,m),null);m.employees[0].employeeNumber='EXAMPLE001';
  m.employees[0].id='EXAMPLE001';m.employees.push({...m.employees[0]});
  assert.equal(P.remembered(s,m),null);assert.equal(P.remember(s,m,'EXAMPLE001'),false);
  m.employees.pop();m.employees[0].identityResolved=false;assert.equal(P.remembered(s,m),null);

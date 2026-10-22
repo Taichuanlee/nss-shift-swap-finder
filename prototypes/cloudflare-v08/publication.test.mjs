@@ -97,3 +97,28 @@ test('publication: blank and partial schedules keep identities across admin publ
  assert.equal((await f.publish(payload,{cookie})).status,401);
  const bad=structuredClone(payload);bad.employees[0].shifts[days[1]]='UNKNOWN';assert.equal((await f.publish(bad)).status,422);
 });
+
+test('publication v2: no-number/same-name local publish, nurse read, canonical hash and strict rejection retain prior value',async()=>{
+ const {default:vm}=await import('node:vm'),{readFile}=await import('node:fs/promises');
+ const context={window:{},Date,Set};vm.createContext(context);
+ for(const f of ['schedule-model','schedule-validator','import-confirmation','schedule-publication','personal-schedule','swap-engine'])vm.runInContext(await readFile(new URL(`../../js/${f}.js`,import.meta.url),'utf8'),context);
+ const ns=context.window.NSSShiftSwapFinder,source=ns.SchedulePublication.load(JSON.parse(b));
+ source.importScope='SYNTHETIC003';source.employees.forEach((e,i)=>{e.employeeNumber=null;e.name='合成同名';e.sourceRows=[{source:{page:1},tableIndex:0,row:i+2}];});
+ const payload=JSON.parse(JSON.stringify(ns.SchedulePublication.create(source))),f=await fixture();
+ const result=await f.publish(payload);assert.equal(result.status,200);const receipt=await result.json();
+ const saved=JSON.parse(f.kv.values.get('schedule:active').value);assert.equal(saved.schemaVersion,2);assert.deepEqual(saved.employees,payload.employees);
+ const canonical=structuredClone(payload);canonical.publishedAt='1970-01-01T00:00:00.000Z';assert.equal(receipt.contentHash,hash(JSON.stringify(canonical)));
+ assert.equal((await (await f.call('/api/admin/publication',{cookie:f.cookie})).json()).contentHash,receipt.contentHash);
+ assert.equal((await f.call('/api/schedule')).status,401);
+ const login=await f.call('/api/login',{method:'POST',body:{code:f.nurse}}),cookie=login.headers.get('set-cookie').split(';')[0];
+ const read=await f.call('/api/schedule',{cookie});assert.equal(read.status,200);const actual=(await read.json()).payload;
+ const loaded=ns.SchedulePublication.load(actual);assert.equal(ns.PersonalSchedule.search(loaded,'合成同名').length,2);
+ assert.equal(loaded.employees.length,2);assert.equal(loaded.scheduleDates.length,40);assert.equal(actual.referenceDates.length,12);
+ const mutations=[p=>p.employees[1].id=p.employees[0].id,p=>p.employees[0].id='foreign',p=>p.employees[0].sourceRows=[],
+ p=>p.employees.forEach(e=>e.employeeNumber='SYNTHETIC004'),p=>p.cycleDates.pop(),p=>p.referenceDates=[],
+ p=>p.dates[0]='2026-02-30',p=>p.provenance.confirmedYear=0,p=>p.employees[0].shifts[p.dates[0]]='UNKNOWN',
+ p=>p.scope='ORDINARY',p=>p.employees[0].name='Ordinary name'];
+ for(const mutate of mutations){const invalid=structuredClone(payload);mutate(invalid);assert.equal((await f.publish(invalid)).status,422);assert.deepEqual(JSON.parse(f.kv.values.get('schedule:active').value),saved);}
+ assert.equal((await f.publish({oversize:'x'.repeat(256*1024)})).status,413);
+ assert.equal(f.kv.writes.filter(w=>w.key==='schedule:active').length,1);
+});

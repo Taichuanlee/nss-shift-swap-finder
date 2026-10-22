@@ -10,6 +10,8 @@ for(const name of ['schedule-model','schedule-validator','import-confirmation','
 vm.runInContext(fs.readFileSync('vendor/sheetjs/xlsx.full.min.js','utf8'),ctx);
 const ns=ctx.window.NSSShiftSwapFinder,P=ns.SchedulePublication;
 const plain=x=>JSON.parse(JSON.stringify(x));
+const internal=(m,number)=>m.employees.find(e=>e.employeeNumber===number).id;
+const comparable=(x,m)=>JSON.parse(JSON.stringify(x),(k,v)=>k==='employeeId'?(m.employees.find(e=>e.id===v)?.employeeNumber??v):v);
 function setup() {
  const ds=dates(40,Date.UTC(2026,10,4));
  const rows=[['Synthetic'],['ID','Name',...ds],
@@ -26,11 +28,11 @@ test('round trip retains every date, identity, leave code, calendar and all sear
  assert.deepEqual(plain(loaded.scheduleDates),ds);
  assert.equal(loaded.scheduleStartDate,ds[0]);assert.equal(loaded.scheduleEndDate,ds.at(-1));
  for(const employee of m.employees) {
-  assert.deepEqual(plain(ns.PersonalSchedule.calendar(loaded,employee.id)),plain(ns.PersonalSchedule.calendar(m,employee.id)));
+  assert.deepEqual(plain(ns.PersonalSchedule.calendar(loaded,internal(loaded,employee.employeeNumber))),plain(ns.PersonalSchedule.calendar(m,employee.id)));
   const options=ns.SwapEngine.options(m,employee.id);
-  for(const day of options.workDates) assert.deepEqual(plain(ns.SwapEngine.search(loaded,employee.id,day,options.leaveDates)),plain(ns.SwapEngine.search(m,employee.id,day,options.leaveDates)));
+  for(const day of options.workDates) assert.deepEqual(comparable(ns.SwapEngine.search(loaded,internal(loaded,employee.employeeNumber),day,options.leaveDates),loaded),comparable(ns.SwapEngine.search(m,employee.id,day,options.leaveDates),m));
  }
- assert.equal(ns.SwapEngine.search(loaded,'SELF',ds[8],[ds[15]])[0].results.length,1);
+ assert.equal(ns.SwapEngine.search(loaded,internal(loaded,'SELF'),ds[8],[ds[15]])[0].results.length,1);
  const p=P.create(m);p.employees[0].shifts[ds[0]]='N';assert.equal(m.employees[0].shifts[ds[0]],'OF');
  loaded.employees[0].shifts[ds[0]]='E';assert.equal(m.employees[0].shifts[ds[0]],'OF');
 });
@@ -39,12 +41,12 @@ test('pre/post-cycle work runs and exclusions survive publication',()=>{
   const {m,ds}=setup();for(const i of indices)m.employees[1].shifts[ds[i]]='A';
   const day=indices[0]===0?ds[5]:ds[32];m.employees[0].shifts[day]='A';m.employees[1].shifts[day]='O';
   const loaded=P.deserialize(P.serialize(m));
-  assert.deepEqual(plain(ns.SwapEngine.search(loaded,'SELF',day,[ds[15]])),plain(ns.SwapEngine.search(m,'SELF',day,[ds[15]])));
+  assert.deepEqual(comparable(ns.SwapEngine.search(loaded,internal(loaded,'SELF'),day,[ds[15]]),loaded),comparable(ns.SwapEngine.search(m,'SELF',day,[ds[15]]),m));
  }
 });
 test('rejects unsupported schema, malformed dates/cycles, identities, missing/extra/unknown shifts and forged flags',()=>{
  const {m,ds}=setup();
- const cases=[p=>p.schemaVersion=2,p=>p.format='other',p=>p.publishedAt='bad',
+ const cases=[p=>p.schemaVersion=99,p=>p.format='other',p=>p.publishedAt='bad',
   p=>p.dates[0]='2026-02-30',p=>p.dates.reverse(),p=>p.dates[1]=p.dates[0],p=>p.dates.splice(2,1),
   p=>p.cycle.endDate=ds[6],p=>p.cycle.startDate='2025-01-01',
   p=>p.employees[1].id=p.employees[0].id,p=>p.employees[0].name='',p=>p.employees[0].id='unresolved-1',
@@ -89,6 +91,6 @@ test('cross-year and leap-day ranges round trip without timezone shifts',()=>{
   assert.equal(ns.ImportConfirmation.confirmCycle(m),true);
   const loaded=P.deserialize(P.serialize(m));
   assert.deepEqual(plain(loaded.scheduleDates),ds);
-  assert.deepEqual(plain(ns.SwapEngine.options(loaded,'EXAMPLE001')),plain(ns.SwapEngine.options(m,'EXAMPLE001')));
+  assert.deepEqual(plain(ns.SwapEngine.options(loaded,internal(loaded,'EXAMPLE001'))),plain(ns.SwapEngine.options(m,'EXAMPLE001')));
  }
 });

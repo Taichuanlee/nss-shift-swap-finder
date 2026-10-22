@@ -2,16 +2,6 @@
   'use strict';
   const ns = window.NSSShiftSwapFinder;
   const invalidEncoding = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFD]/;
-  // Exact, user-confirmed hospital headers; never infer from cell codes.
-  const nonDailyHeaders = Object.freeze({
-    '11月預定夜班': 'novemberPlannedShift',
-    '12月預定夜班': 'decemberPlannedShift',
-    '單位': 'qualifiedPosition',
-  });
-  const nonDailyKind = value => {
-    const header=String(value ?? '').trim();
-    return Object.hasOwn(nonDailyHeaders,header)?nonDailyHeaders[header]:null;
-  };
   const stages = Object.freeze({
     'library-load': 'PDF 函式庫載入', 'file-read': '本機檔案讀取',
     'document-load': 'PDF 載入（含 Worker 初始化）', 'page-load': 'PDF 頁面載入',
@@ -150,9 +140,8 @@
     return debugReport ? JSON.parse(JSON.stringify(debugReport)) : null;
   }
   function stopDiagnostics() {debugReport = null;}
-  const heightForRow = items => Math.max(4,...items.map(i=>i.height || 0));
   function positionedTables(pages) {
-    const tables = [], structureIssues = [];
+    const tables = [], structureIssues = [], pageFooters=[];
     for (const {pageNumber, items} of pages) {
       const usable = items.filter(i => typeof i.str === 'string' && i.str.trim());
       if (!usable.length) {
@@ -216,7 +205,7 @@
           if (anchors.some((a,i)=>i && a.x-anchors[i-1].x < 8)) {
             structureIssues.push({code:'OVERLAPPING_HEADER',message:'日期／身分表頭位置重疊，無法可靠分欄。',source:{page:pageNumber,y:line.y}});
           }
-          table = {source:{page:pageNumber}, title:titles.filter(t=>t.y>line.y+height*1.2).map(t=>t.text).join(' '),rows:[headerCells]};
+          table = {source:{page:pageNumber}, dailyLayoutVerified:true, title:titles.filter(t=>t.y>line.y+height*1.2).map(t=>t.text).join(' '),rows:[headerCells]};
           // Titles remain rows so shared date context can resolve partial dates.
           table.rows.unshift([{value:table.title,source:{page:pageNumber}}]);
           tables.push(table);
@@ -227,6 +216,7 @@
         let misaligned = false;
         const collisionColumns = [];
         const identity=ns.Model.headerInfo(table.rows[1]);
+        const required=new Set([identity.name,...(identity.id>=0?[identity.id]:[]),...identity.dateIndices]);
         for (const item of sorted) {
           const x = item.transform[4], right = x+(item.width || 0), center=(x+right)/2;
           let index = 0;
@@ -235,54 +225,53 @@
           const leftBoundary=index ? (anchors[index-1].x+a.x)/2 : a.x-Math.max(30,(anchors[1]?.x-a.x || 30)/2);
           const rightBoundary=index<anchors.length-1 ? (a.x+anchors[index+1].x)/2 : a.x+Math.max(30,(a.x-anchors[index-1]?.x || 30)/2);
           // Text crossing column boundaries is unsafe, even if its center can be assigned.
-          if (x < leftBoundary-2 || right > rightBoundary+2) misaligned=true;
+          if(required.has(index) && (x < leftBoundary-2 || right > rightBoundary+2))misaligned=true;
+          if(!required.has(index) && [...required].some(j=>{
+            const l=j?(anchors[j-1].x+anchors[j].x)/2:anchors[j].left;
+            const r=j<anchors.length-1?(anchors[j].x+anchors[j+1].x)/2:anchors[j].right;
+            return x<r-2 && right>l+2;
+          }))misaligned=true;
           if (identity?.dateIndices.includes(index) && row[index].value && ns.Model.classify(row[index].value)!=='unknown' && ns.Model.classify(item.str)!=='unknown') collisionColumns.push(index);
           row[index].value += (row[index].value ? ' ' : '') + item.str;
           row[index].source = {page:pageNumber,x,y:line.y};
         }
         if(collisionColumns.length && identity.dateIndices.some(index=>!row[index]?.value)) misaligned=true;
-        // Isolated text well below employee rows is outside the table (e.g. page footer).
-        const hasIdentity=identity&&row[identity.name]?.value&&row[identity.id]?.value;
-        if(!hasIdentity&&previousBodyY!==null&&previousBodyY-line.y>heightForRow(sorted)*3&&sorted.every(i=>ns.Model.classify(i.str)==='unknown')) continue;
+        // Recognize only a complete trailing page-number line below the employee rows.
+        const hasIdentity=!!(identity&&row[identity.name]?.value);
+        const footer=sorted.map(i=>i.str).join('').replace(/\s+/g,'').match(/^第(\d+)頁[，,]共(\d+)頁$/);
+        if(footer && +footer[1]===pageNumber && +footer[2]===pages.length && !hasIdentity &&
+          !(identity.id>=0&&row[identity.id]?.value) && previousBodyY!==null && line.y<previousBodyY && line===lines.at(-1)){
+          pageFooters.push({raw:sorted.map(i=>i.str).join(''),source:{page:pageNumber,y:line.y}});continue;
+        }
         if(hasIdentity)previousBodyY=line.y;
         if (misaligned) structureIssues.push({code:'COLUMN_ALIGNMENT',message:'文字跨越欄界或偏離表頭位置，日期與班別可能錯位；未判定為可靠班表。',source:{page:pageNumber,y:line.y}});
         table.rows.push(row);
       }
-      if (!table) structureIssues.push({code:'NO_POSITIONED_HEADER',message:'無法依座標辨識姓名、員工編號與日期欄；不支援此頁表格結構。',source:{page:pageNumber}});
+      if (!table) structureIssues.push({code:'NO_POSITIONED_HEADER',message:'無法依座標辨識姓名與日期欄（員工編號選填）；不支援此頁表格結構。',source:{page:pageNumber}});
     }
-    const nonDailyColumns = tables.flatMap(table=>{
-      const header=ns.Model.headerInfo(table.rows[1]);
-      if(!header)return [];
-      return table.rows[1].flatMap((cell,index)=>{
-        const kind=nonDailyKind(cell.value);
-        if(!kind)return [];
-        return [{kind,rawHeader:cell.value,source:cell.source,
-          values:table.rows.slice(2).filter(r=>r[header.id]?.value&&r[header.name]?.value)
-            .map(r=>({employeeId:r[header.id].value,rawValue:r[index]?.value||'',source:r[index]?.source}))}];
-      });
-    });
-    // Adapt only the shared adapter's header classification. Original tables and
-    // non-daily values stay intact in memory and never enter employee.shifts.
-    const dailyTables=tables.map(table=>({...table,rows:table.rows.map((row,index)=>
-      index===1?row.map(cell=>nonDailyKind(cell.value)?{...cell,value:'備註'}:cell):row)}));
-    const model = ns.Model.fromTables(dailyTables,'pdf');
+    // Keep the original columns and coordinates; only proven outside-date metadata
+    // is excluded. Unknown holes inside the date region remain blocking.
+    const model = ns.Model.fromTables(tables,'pdf');
     for (const error of structureIssues) ns.Model.issue(model,'errors','global',error.code,error.message,error.source);
-    // Recognition describes geometry and identity mapping; date/code validation
-    // remains independent and retains all existing search restrictions.
     model.pdfTableRecognized = tables.length === pages.length && tables.length > 0 &&
-      structureIssues.length === 0 && model.employees.length > 0 && model.scheduleDates.length > 0 &&
+      structureIssues.length === 0 && model.employees.length > 0 && model.dateColumns.length > 0 &&
       !model.errors.some(e => e.code === 'UNIDENTIFIED_ROW');
-    model.pdfNonDailyColumns = nonDailyColumns;
-    model.pdfHeaderMetadata = nonDailyColumns.map(({rawHeader,source})=>({rawHeader,source}));
-    // Preserve every unmapped column and its per-employee values in memory.
-    model.pdfUnresolvedColumns = tables.flatMap(table=>{
-      const header=ns.Model.headerInfo(table.rows[1]);
-      if(!header)return [];
-      return table.rows[1].flatMap((cell,index)=>{
-        if(index===header.name||index===header.id||header.dateIndices.includes(index)||cell.value==='備註'||nonDailyKind(cell.value))return [];
-        return [{rawHeader:cell.value,source:cell.source,values:table.rows.slice(2).filter(r=>r[header.id]?.value&&r[header.name]?.value).map(r=>({employeeId:r[header.id].value,rawShift:r[index]?.value||'',source:r[index]?.source}))}];
-      });
-    });
+    const metadata=[],unresolved=[];
+    for(const [tableIndex,table] of tables.entries()) {
+      const header=ns.Model.headerInfo(table.rows[1]);if(!header)continue;
+      for(const [index,cell] of table.rows[1].entries()) {
+        if(index===header.name||index===header.id||header.dateIndices.includes(index))continue;
+        const values=model.employees.flatMap(e=>e.sourceRows.filter(r=>r.tableIndex===tableIndex).map(r=>({employeeId:e.id,rawValue:table.rows[r.row][index]?.value||'',source:table.rows[r.row][index]?.source})));
+        const outer=index<header.dateIndices[0]||index>header.dateIndices.at(-1);
+        const suspicious=/^\d{1,4}\s*[/.-]/.test(ns.Model.text(cell.value));
+        if(outer&&!suspicious)metadata.push({kind:'outsideDateRegion',rawHeader:cell.value,source:cell.source,values});
+        else unresolved.push({rawHeader:cell.value,source:cell.source,values:values.map(v=>({...v,rawShift:v.rawValue}))});
+      }
+    }
+    model.pdfNonDailyColumns=metadata;
+    model.pdfHeaderMetadata=metadata.map(({rawHeader,source})=>({rawHeader,source}));
+    model.pdfUnresolvedColumns=unresolved;
+    model.pdfPageFooters=pageFooters;
     return ns.Validator.validate(model);
   }
   let library;

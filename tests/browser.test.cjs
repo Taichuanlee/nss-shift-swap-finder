@@ -92,7 +92,7 @@ test('real browser local parsing, result states, selection reset, no outbound re
       const method=fallback.pdfDiagnostics.textExtractionMethod;
       delete normal.pdfDiagnostics.textExtractionMethod;
       delete fallback.pdfDiagnostics.textExtractionMethod;
-      return {report:parser.getDiagnostics(),method,identical:JSON.stringify(normal)===JSON.stringify(fallback),
+      return {report:parser.getDiagnostics(),method,identical:JSON.stringify(normal,(key,value)=>key==='importScope'?undefined:value)===JSON.stringify(fallback,(key,value)=>key==='importScope'?undefined:value),
         blocked:!fallback.validation.readyForSearch,errors:fallback.errors.map(e=>e.code),
         nonDailyCount:fallback.pdfNonDailyColumns.length,unresolvedCount:fallback.pdfUnresolvedColumns.length,
         dateCount:fallback.scheduleDates.length,dailyShiftCount:fallback.employees.reduce((n,e)=>n+Object.keys(e.shifts).length,0),
@@ -169,7 +169,7 @@ test('real browser local parsing, result states, selection reset, no outbound re
     const chunks=[];for await(const chunk of await download.createReadStream())chunks.push(chunk);
     const publicationText=Buffer.concat(chunks).toString('utf8');
     const publication=JSON.parse(publicationText);
-    assert.equal(publication.schemaVersion,1);
+    assert.equal(publication.schemaVersion,2);
     assert.equal(publication.dates.length,33);
     assert.equal(await page.evaluate(text=>NSSShiftSwapFinder.SchedulePublication.deserialize(text).validation.readyForSearch,publicationText),true);
     const guidesAfterConfirm=await page.evaluate(()=>window.scrollGuides.length);
@@ -450,7 +450,7 @@ test('real browser local parsing, result states, selection reset, no outbound re
   await page.locator('#date-suggestions .confirm-button').click();
   assert.equal(await page.locator('#confirm-cycle').isDisabled(),true);
   assert.match(await page.locator('#result-issues').textContent(),/重複日期/);
-  const unsupported=grid();unsupported[1][0]='Unsupported ID header';
+  const unsupported=grid();unsupported[1][1]='Unsupported required name header';
   await choose('unsupported-table.pdf','application/pdf',pdf([unsupported]));await parse();
   assert.match(await page.locator('#status').textContent(),/文字擷取成功.*表格欄列辨識未通過/);
   assert.doesNotMatch(await page.locator('#status').textContent(),/文字擷取失敗/);

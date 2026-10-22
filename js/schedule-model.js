@@ -5,6 +5,7 @@
   const DAY = 86400000;
   // Original source tables are retained only in memory for confirmed date rebuilding.
   const tableContexts = new WeakMap();
+  let importSequence = 0;
   const work = new Set(['A', 'E', 'N']);
   const leave = new Set(['O', 'OF', 'ON', 'OZ', 'O1', 'O6', 'O8']);
   const text = value => String(value ?? '').trim();
@@ -67,11 +68,16 @@
     const name = row.findIndex(c => nameHeader.test(text(c.value)));
     const id = row.findIndex(c => idHeader.test(text(c.value)));
     const dateIndices = row.map((c, i) => dateParts(c.value) ? i : -1).filter(i => i >= 0);
-    return name >= 0 && id >= 0 && dateIndices.length >= 2 ? {name, id, dateIndices} : null;
+    const ambiguousIdentity=row.filter(c=>nameHeader.test(text(c.value))).length!==1 || row.filter(c=>idHeader.test(text(c.value))).length>1;
+    return name >= 0 && dateIndices.length >= 2 ? {name, id, dateIndices, ambiguousIdentity} : null;
   }
-  function fromTables(tables, sourceType, dateCorrections = []) {
+  function fromTables(tables, sourceType, dateCorrections = [], options = {}) {
     const model = create(sourceType);
     const employeeMap = new Map();
+    const identityContext=options.identityContext || {scope:`local-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${++importSequence}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`}`,rows:new Map()};
+    model.importScope=identityContext.scope;
+    model.confirmedYear=options.confirmedYear ?? null;
+    model.needsYearConfirmation=false;
     let headerCount = 0;
     for (const [tableIndex, table] of tables.entries()) {
       model.sourceInfo.push({source: table.source, title: table.title || ''});
@@ -84,11 +90,13 @@
         if (h) {
           headerCount++;
           header = h;
+          if(h.ambiguousIdentity)issue(model,'errors','global','AMBIGUOUS_IDENTITY_HEADER','姓名或員編欄位不唯一，不能選擇其中一欄猜測。',table.source);
           if (initialHeaderRow === null) initialHeaderRow = r;
-          const contextText = [...table.rows.slice(0, initialHeaderRow), row].flat().map(c => text(c.value)).join(' ');
+          const contextText = [...table.rows.slice(0, initialHeaderRow).flat(),...h.dateIndices.map(index=>row[index])].map(c => text(c.value)).join(' ');
           const years = [...new Set((contextText.match(/\b(?:19|20|21)\d{2}\b/g) || []).map(Number))];
           const first = dateParts(row[h.dateIndices[0]].value);
-          let year = first.year || (years.length === 1 ? years[0] : null);
+          let year = first.year || (years.length === 1 ? years[0] : model.confirmedYear);
+          if(!year)model.needsYearConfirmation=true;
           let previous = null;
           columns = h.dateIndices.map(index => {
             const cell = row[index];
@@ -116,7 +124,7 @@
           }
           const knownMetadata = /^(備註|單位|職稱|合計|總計|note|unit|role|total)$/i;
           row.forEach((cell, index) => {
-            if (index !== h.name && index !== h.id && !h.dateIndices.includes(index) && text(cell.value) && !knownMetadata.test(text(cell.value)) && (index < h.dateIndices[0] || index > h.dateIndices.at(-1))) {
+            if (index !== h.name && index !== h.id && !h.dateIndices.includes(index) && text(cell.value) && !knownMetadata.test(text(cell.value)) && (!table.dailyLayoutVerified || /^\d{1,4}\s*[/.-]/.test(text(cell.value))) && (index < h.dateIndices[0] || index > h.dateIndices.at(-1))) {
               const column = {index, date: null, raw: text(cell.value), source: cell.source};
               model.unresolvedDateColumns.push(column);
               issue(model, 'errors', 'global', 'UNMAPPED_COLUMN', '表頭含無法辨識的欄位，不能確認是否為未辨識日期；未略過該問題。', cell.source);
@@ -143,11 +151,13 @@
           if (columns.some(c => text(row[c.index]?.value))) issue(model, 'errors', 'global', 'UNIDENTIFIED_ROW', '表頭下有無法辨識身分的資料列，欄列可能錯位。', row[0]?.source);
           continue;
         }
-        const id = rawId || `unresolved-${model.employees.length + 1}`;
+        const rowKey=`${tableIndex}:${r}`;
+        if(!identityContext.rows.has(rowKey))identityContext.rows.set(rowKey,`local-record:${identityContext.scope}:${rowKey}`);
+        const id = rawId || identityContext.rows.get(rowKey);
         let employee = employeeMap.get(id);
         if (!employee) {
-          employee = {id, name, shifts: Object.create(null), shiftSources: Object.create(null),
-            shiftDetails: Object.create(null), identityResolved: !!rawId && !!name, validation: {complete: false, eligible: false}};
+          employee = {id, employeeNumber:rawId || null, name, sourceRows:[], pendingShifts:[], shifts: Object.create(null), shiftSources: Object.create(null),
+            shiftDetails: Object.create(null), identityResolved: !!name, validation: {complete: false, eligible: false}};
           employeeMap.set(id, employee);
           model.employees.push(employee);
         } else {
@@ -157,13 +167,14 @@
             issue(model, 'errors', 'local', 'IDENTITY_CONFLICT', '相同員工編號對應不同姓名，需確認身分。', row[header.name]?.source, id);
           }
         }
-        if (!rawId || !name) issue(model, 'errors', 'local', 'MISSING_IDENTITY', '員工姓名或編號缺漏；未以其他員工身分代替。', row[header.name]?.source, id);
+        employee.sourceRows.push({tableIndex,row:r,source:row[header.name]?.source});
+        if (!name) issue(model, 'errors', 'local', 'MISSING_IDENTITY', '員工姓名缺漏；未以其他員工身分代替。', row[header.name]?.source, id);
         for (const column of columns) {
-          if (!column.date) continue;
           const cell = row[column.index];
           const raw = String(cell?.value ?? '');
           const normalized = normalizeShift(raw);
           const source = cell?.source || {...table.source, row: r + 1, column: column.index + 1};
+          if(!column.date){employee.pendingShifts.push({tableIndex,headerRow:column.headerRow,index:column.index,raw,normalized,source});continue;}
           // Preserve every source cell, including repeated pages and conflicts.
           (employee.shiftDetails[column.date] ||= []).push({raw, normalized, source});
           if (Object.hasOwn(employee.shifts, column.date)) {
@@ -177,19 +188,21 @@
           }
         }
       }
-      if (!header) issue(model, 'errors', 'global', 'TABLE_NOT_RECOGNIZED', '無法辨識姓名、員工編號與至少兩個日期欄，請確認表格配置。', table.source);
+      if (!header) issue(model, 'errors', 'global', 'TABLE_NOT_RECOGNIZED', '無法辨識姓名與至少兩個日期欄（員工編號選填），請確認表格配置。', table.source);
     }
     if (!headerCount || !model.employees.length) issue(model, 'errors', 'global', 'NO_EMPLOYEES', '未取得可靠的員工班別資料。');
     model.scheduleDates = [...new Set(model.dateColumns.map(c => c.date).filter(Boolean))].sort();
     model.scheduleStartDate = model.scheduleDates[0] || null;
     model.scheduleEndDate = model.scheduleDates.at(-1) || null;
-    tableContexts.set(model, {tables, baseErrors: new Set(model.errors), baseWarnings: new Set(model.warnings)});
+    model.requiresPublicationV2=model.employees.some(e=>e.employeeNumber===null);
+    if(model.requiresPublicationV2)model.importScope=identityContext.scope;
+    tableContexts.set(model, {tables, identityContext, confirmedYear:model.confirmedYear, baseErrors: new Set(model.errors), baseWarnings: new Set(model.warnings)});
     return model;
   }
-  function rebuildDates(model, dateCorrections) {
+  function rebuildDates(model, dateCorrections, options = {}) {
     const context = tableContexts.get(model);
     if (!context) throw new Error('沒有可追溯的原始日期欄位，無法安全修正日期。');
-    const next = fromTables(context.tables, model.sourceType, dateCorrections);
+    const next = fromTables(context.tables, model.sourceType, dateCorrections, {identityContext:context.identityContext,confirmedYear:options.confirmedYear ?? context.confirmedYear});
     // Preserve format-specific geometry/merge errors; regenerate all table/date errors.
     for (const [severity, base] of [['errors', context.baseErrors], ['warnings', context.baseWarnings]]) {
       next[severity].push(...model[severity].filter(i => !i.validationIssue && !base.has(i)));
@@ -216,7 +229,8 @@
         const id = text(row[header.id]?.value), name = text(row[header.name]?.value);
         if (/^(合計|總計|備註|人數|total)$/i.test(id) || /^(合計|總計|備註|人數|total)$/i.test(name)) continue;
         if (!id && !name) continue;
-        const employee = model.employees.find(e => e.id === id && e.name === name);
+        const recordId=id || context.identityContext.rows.get(`${tableIndex}:${r}`);
+        const employee = model.employees.find(e => e.id === recordId && e.name === name);
         if (!employee) return false;
         for (const col of columns) {
           const cell = row[col.index], raw = String(cell?.value ?? '');

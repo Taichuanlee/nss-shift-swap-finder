@@ -106,11 +106,11 @@
         <label for="employee-search">搜尋姓名或員工編號</label>
         <input id="employee-search" type="search" autocomplete="off" placeholder="輸入姓名或員工編號" aria-describedby="identity-status">
         <div id="employee-results" class="employee-results" aria-label="搜尋結果"></div>
-        <div id="identity-review" class="date-suggestion" hidden><p>請確認這是您本人</p><strong id="identity-review-name"></strong><button id="confirm-identity" class="confirm-button" type="button">確認這是我</button></div>
+        <div id="identity-review" class="date-suggestion" hidden><p>請確認這是您本人</p><strong id="identity-review-name"></strong><div id="identity-review-weeks" aria-label="確認身分用四週班表"></div><button id="confirm-identity" class="confirm-button" type="button">確認這是我</button></div>
       </div>
       <div id="confirmed-identity" hidden><strong id="confirmed-name"></strong><button id="switch-employee" class="reject-button" type="button">切換同仁</button></div>
       <p id="identity-status" class="status" role="status" aria-live="polite"></p>
-      <p class="confirmation-help">確認後只在這部裝置記住您的員工編號，不儲存姓名、班表或其他同仁資料。每次匯入仍需重新確認。</p>
+      <p class="confirmation-help">有員編時只在這部裝置記住員編；未提供員編者每次須重新選擇。不儲存姓名或班表，每次載入仍需重新確認。</p>
       <button id="forget-identity" class="remove-file" type="button">清除記住的身分</button>
     </section>
     <section class="card personal-card" id="personal-schedule" tabindex="-1" aria-labelledby="personal-title" hidden>

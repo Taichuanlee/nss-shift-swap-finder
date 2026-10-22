@@ -78,14 +78,14 @@ test('wrapped edge dates, left-aligned shifts and footer preserve every dated co
   else add(month+'/'+day,x+5,700);
   add(i%2?'OF':'A',x+1,680,i%2?6:3);
  });
- add('EXAMPLE001',20,680);add('Example Nurse',90,680);add('Synthetic footer',300,600);
+ add('EXAMPLE001',20,680);add('Example Nurse',90,680);add('第1頁，共1頁',300,600);
  const model=s.parser.positionedTables([{pageNumber:1,items:raw.reverse()}]);
  assert.equal(model.scheduleDates.length,35);assert.equal(model.employees.length,1);assert.equal(model.validation.basicValidationPassed,true);assert.equal(model.employees[0].shifts[ds[0]],'A');assert.equal(model.employees[0].shifts[ds.at(-1)],'A');
 });
-test('unresolved side columns retain raw per-employee values without guessing dates',()=>{
+test('proven outside-date columns retain raw per-employee values without entering daily shifts',()=>{
  const s=setup(),raw=items(grid());raw.push({str:'Month carryover',width:40,height:8,transform:[1,0,0,1,1800,726]},{str:'OF',width:10,height:8,transform:[1,0,0,1,1800,702]});
  const model=s.parser.positionedTables([{pageNumber:1,items:raw}]);
- assert.ok(model.pdfUnresolvedColumns.length);assert.ok(model.pdfUnresolvedColumns.some(c=>c.values.some(v=>v.rawShift==='OF')));assert.equal(model.validation.globalStructureValid,false);
+ assert.equal(model.pdfUnresolvedColumns.length,0);assert.ok(model.pdfNonDailyColumns.some(c=>c.values.some(v=>v.rawValue==='OF')));assert.equal(model.validation.globalStructureValid,true);
  assert.equal(model.pdfTableRecognized,true);
 });
 test('recognized tables with invalid data report validation, not recognition failure',async()=>{
@@ -112,18 +112,18 @@ test('exact confirmed non-daily headers preserve raw values and sources outside 
  assert.equal(m.pdfNonDailyColumns.length,6);assert.equal(m.pdfUnresolvedColumns.length,0);
  assert.equal(m.errors.length,0);assert.equal(m.validation.basicValidationPassed,true);
  for(const c of m.pdfNonDailyColumns){assert.ok(c.rawHeader);assert.ok(c.kind);assert.ok(c.source.page);assert.equal(c.values.length,2);assert.ok(c.values.every(v=>v.rawValue&&v.employeeId.startsWith('EXAMPLE')&&v.source.page===c.source.page));}
- assert.equal(m.pdfNonDailyColumns.find(c=>c.kind==='qualifiedPosition').values[0].rawValue,'A');
+ assert.equal(m.pdfNonDailyColumns.find(c=>c.rawHeader==='單位').values[0].rawValue,'A');
 });
-test('similar or unknown headers remain unresolved, including unrecognized non-shift prefix columns',()=>{
+test('arbitrary outside-date headers are metadata; names are not an exclusion allowlist',()=>{
  const s=setup();
  for(const label of ['10月預定夜班','11月預定夜班備註','11 月預定夜班','單位備註','toString']) {
   const rows=grid();rows[1].push(label);rows.slice(2).forEach(r=>r.push('N'));
   const m=s.parser.positionedTables([{pageNumber:1,items:items(rows)}]);
-  assert.equal(m.pdfNonDailyColumns.length,0);assert.ok(m.errors.some(e=>e.code==='UNMAPPED_COLUMN'));
-  assert.ok(m.pdfUnresolvedColumns.some(c=>c.rawHeader===label));
+  assert.equal(m.pdfNonDailyColumns.length,1);assert.ok(!m.errors.some(e=>e.code==='UNMAPPED_COLUMN'));
+  assert.ok(m.pdfNonDailyColumns.some(c=>c.rawHeader===label));
  }
  const raw=items(grid());raw.push({str:'未確認欄',width:14,height:8,transform:[1,0,0,1,0,726]},
   {str:'資格甲',width:14,height:8,transform:[1,0,0,1,0,702]},{str:'資格乙',width:14,height:8,transform:[1,0,0,1,0,678]});
  const m=s.parser.positionedTables([{pageNumber:1,items:raw}]);
- assert.ok(m.errors.some(e=>e.code==='UNMAPPED_COLUMN'));assert.ok(m.pdfUnresolvedColumns.some(c=>c.rawHeader==='未確認欄'));
+ assert.ok(!m.errors.some(e=>e.code==='UNMAPPED_COLUMN'));assert.ok(m.pdfNonDailyColumns.some(c=>c.rawHeader==='未確認欄'));
 });

@@ -31,7 +31,7 @@
       const overlap = a.filter(c => b.some(d => d.date === c.date)).length;
       // Repeated full-range pages must agree. Non-overlapping split ranges are allowed.
       if (overlap <= Math.min(a.length,b.length)/2) continue;
-      if (a.length !== b.length || after[i].some((c,k) => c.index !== after[j][k].index || c.date !== after[j][k].date)) return false;
+      if (a.length !== b.length || after[i].some((c,k) => c.date !== after[j][k].date)) return false;
       for (let k=0; k<a.length; k++) {
         if (a[k].date !== b[k].date && !(rawMatches(a[k],after[i][k].date) && rawMatches(b[k],after[j][k].date))) return false;
       }
@@ -78,7 +78,7 @@
       for (let i = 1; i < columns.length - 1; i++) {
         const col = columns[i], expected = addDays(columns[i-1].date, 1);
         if (!expected || col.date === expected || !rawMatches(columns[i+1], addDays(expected,1))) continue;
-        const key = `${col.index}|${col.raw}|${expected}`;
+        const key = `${i}|${col.raw}|${expected}`;
         if (!suggestions.has(key)) suggestions.set(key, {id:key, originalRaw:col.raw,
           originalDate:col.date, correctedDate:expected, status:'pending',
           reason:'依日期欄位順序，前一日加一天與後一日減一天唯一指向相同日期。', occurrences:[]});
@@ -119,6 +119,12 @@
     const next = rebuild(model,decisions);
     return next;
   }
+  function confirmYear(model, year) {
+    if(!/^\d{4}$/.test(String(year)) || Number(year)<1900 || Number(year)>2199)throw new Error('請明確輸入 1900～2199 的西元年份。');
+    if(!model.needsYearConfirmation && model.confirmedYear===null)throw new Error('此班表已有年份來源，不可覆寫。');
+    const next=ns.Model.rebuildDates(model,[],{confirmedYear:Number(year)});
+    return initialize(ns.Validator.validate(next),{autoCorrect:false});
+  }
   function setCycleStart(model, startDate) {
     model = initialize(model);
     model.cycleStartDate = addDays(startDate, 0);
@@ -136,5 +142,5 @@
     ns.Validator.validate(model);
     return model.validation.readyForSearch;
   }
-  ns.ImportConfirmation = Object.freeze({initialize, decideDate, setCycleStart, confirmCycle, addDays, resolved});
+  ns.ImportConfirmation = Object.freeze({initialize, decideDate, setCycleStart, confirmCycle, confirmYear, addDays, resolved});
 })();

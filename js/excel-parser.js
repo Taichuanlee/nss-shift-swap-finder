@@ -48,7 +48,7 @@
     const date1904 = !!workbook.Workbook?.WBProps?.date1904;
     const tables = workbook.SheetNames.map(name => tableFromSheet(workbook.Sheets[name], name, date1904));
     const candidates = tables.filter(t => t.rows.some(r => ns.Model.headerInfo(r)));
-    if (!candidates.length) throw new Error('沒有可辨識的班表工作表；需要姓名、員工編號與日期表頭，日期須含年份或可唯一辨識的年份標題。');
+    if (!candidates.length) throw new Error('沒有可辨識的班表工作表；需要姓名與日期表頭（員工編號選填），日期須含年份或可唯一辨識的年份標題。');
     if (!sheetName && candidates.length > 1) return {needsSheetSelection:true, sheetNames:candidates.map(t=>t.source.sheet)};
     const table = sheetName ? candidates.find(t => t.source.sheet === sheetName) : candidates[0];
     if (!table) throw new Error('指定工作表不是可辨識的班表。');

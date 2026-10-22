@@ -56,6 +56,9 @@
       const unknownDates=dates.filter(d=>classify(employee.shifts[d])==='blank');
       employee.validation = {complete: employee.identityResolved !== false && !localErrors.length && !unknownDates.length, incomplete:unknownDates.length>0, unknownDates, eligible:false};
     }
+    const names=new Map();
+    for(const e of model.employees){const same=names.get(e.name)||[];same.push(e.id);names.set(e.name,same);}
+    for(const same of names.values())if(new Set(same).size>1)add('warnings','global','SAME_NAME_RECORDS','同名人員保留獨立紀錄；請依來源與班表確認，不可只憑姓名合併。');
     const globalStructureValid = !!dates.length && !!model.employees.length && !model.errors.some(i => i.scope === 'global');
     const shiftsComplete = model.employees.length > 0 && model.employees.every(e => e.validation.complete);
     const cycleLengthValid = !!model.cycleStartDate && !!model.cycleEndDate &&

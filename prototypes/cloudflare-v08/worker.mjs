@@ -105,12 +105,12 @@ function validatedPublication(payload,env) {
   if(!Array.isArray(payload?.dates)||payload.dates.length>366||!Array.isArray(payload.employees)||payload.employees.length>1000||
     payload.employees.some(e=>typeof e?.id!=='string'||e.id.length>128||typeof e.name!=='string'||e.name.length>128))throw new Error('invalid');
   const model=publicationRuntime.SchedulePublication.load(payload);
-  if(env.SYNTHETIC_ONLY!=='false'&&!model.employees.every(e=>/^SYNTHETIC\d+$/.test(e.id)&&e.name.startsWith('合成')))throw new Error('synthetic_only');
-  return publicationRuntime.SchedulePublication.create(model);
+  if(env.SYNTHETIC_ONLY!=='false'&&!model.employees.every(e=>(/^SYNTHETIC\d+$/.test(e.employeeNumber??'')||(e.employeeNumber===null&&/^SYNTHETIC\d+$/.test(model.importScope??'')))&&e.name.startsWith('合成')))throw new Error('synthetic_only');
+  return publicationRuntime.SchedulePublication.create(model,{version:payload.schemaVersion});
 }
 async function contentHash(payload) {
   // Stable content identity ignores the server-assigned publication timestamp.
-  const canonical=publicationRuntime.SchedulePublication.create(publicationRuntime.SchedulePublication.load(payload));
+  const canonical=publicationRuntime.SchedulePublication.create(publicationRuntime.SchedulePublication.load(payload),{version:payload.schemaVersion});
   canonical.publishedAt='1970-01-01T00:00:00.000Z';return digest(JSON.stringify(canonical));
 }
 async function readSchedule(env) {

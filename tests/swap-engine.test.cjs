@@ -70,7 +70,7 @@ test('provided pre-cycle days count toward full affected run; out-of-cycle dates
 test('post-cycle adjacent dates count, boundary metadata is retained and no holiday dates is explicit',()=>{
  const s=setup(38,'2026-12-20');s.self.shifts[s.d1]='OF';s.d1=s.m.cycleEndDate;s.self.shifts[s.d1]='A';
  for(let i=33;i<38;i++)s.other.shifts[s.ds[i]]='A';assert.equal(result(s).excluded.consecutive,1);
- const t=setup(28,'2027-01-01',0);t.self.shifts[t.d1]='OF';t.d1=t.ds[0];t.self.shifts[t.d1]='A';assert.equal(result(t).results[0].other.impact.edge,true);assert.equal(result(t).results[0].warnings.length,0);
+ const t=setup(28,'2027-01-01',0);t.self.shifts[t.d1]='OF';t.d1=t.ds[0];t.self.shifts[t.d1]='A';assert.equal(result(t).results.length,0);assert.equal(result(t).excluded.context,1);
  for(const d of t.ds)t.self.shifts[d]='A';assert.equal(E.options(t.m,'SELF').leaveDates.length,0);
 });
 
