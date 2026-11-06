@@ -159,3 +159,15 @@ test('runtime contains no SOS parameter, state, element or cross-shift enablemen
   assert.doesNotMatch(fs.readFileSync(file,'utf8'),/emergency|emergency-mode|emergency-option|cross-shift|🆘|沒招/);
  assert.equal(E.search.length,4);
 });
+
+test('boundary uncertainty remains visible with explicit warning, not certified safe',()=>{
+ const s=setup(28,'2026-12-07',0);
+ s.self.shifts[s.d1]='OF';s.d1=s.ds[11];s.self.shifts[s.d1]='N';
+ s.d2=s.ds[3];s.self.shifts[s.d2]='OF';s.other.shifts[s.d2]='N';
+ for(let i=0;i<3;i++)s.self.shifts[s.ds[i]]='N';
+ const group=result(s);
+ assert.equal(group.results.length,1);
+ assert.equal(group.excluded.context,0);
+ assert.equal(group.results[0].risks.context,true);
+ assert.match(group.results[0].warnings.join(' '),/邊界參考不足.*待確認/);
+});
