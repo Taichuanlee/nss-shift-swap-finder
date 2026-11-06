@@ -56,5 +56,5 @@ test('missing edge context and unknown reference cells exclude candidates; suppl
  let loaded=P.load(P.create(m)),id=loaded.employees[0].id;assert.equal(E.search(loaded,id,m.cycleStartDate,[ds[15]])[0].results.length,1);
  other.shifts[ds[4]]='';loaded=P.load(P.create(m));assert.equal(E.search(loaded,id,m.cycleStartDate,[ds[15]])[0].excluded.invalid,1);
  other.shifts[ds[4]]='O';const p=plain(P.create(m));p.dates=p.cycleDates.slice();p.referenceDates=[];for(const e of p.employees)e.shifts=Object.fromEntries(p.dates.map(d=>[d,e.shifts[d]]));
- loaded=P.load(p);const group=E.search(loaded,id,m.cycleStartDate,[ds[15]])[0];assert.equal(group.results.length,0);assert.equal(group.excluded.context,1);
+ loaded=P.load(p);const group=E.search(loaded,id,m.cycleStartDate,[ds[15]])[0];assert.equal(group.results.length,1);assert.equal(group.excluded.context,0);assert.equal(group.results[0].risks.context,true);assert.match(group.results[0].warnings.join(' '),/邊界參考不足.*待確認/);
 });
