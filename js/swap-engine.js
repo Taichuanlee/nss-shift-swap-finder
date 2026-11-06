@@ -58,7 +58,7 @@
     return {beforeCount:oldWindows.length,afterCount:newWindows.length,regions,worsened:regions.some(r=>r.after>r.before)};
   }
   function sortResults(results) {
-    const category=r=>r.risks.consecutive?2:r.risks.fragmented?1:0;
+    const category=r=>r.risks.context?3:r.risks.consecutive?2:r.risks.fragmented?1:0;
     return results.map((result,index)=>({result,index})).sort((a,b)=>category(a.result)-category(b.result)||a.result.warnings.length-b.result.warnings.length||a.index-b.index).map(item=>item.result);
   }
   function impact(model,employee,overrides) {
@@ -121,9 +121,10 @@
         if(!assessmentKnown(model,self,selfChanges)||!assessmentKnown(model,other,otherChanges)){group.excluded.invalid++;continue;}
         const selfImpact=impact(model,self,selfChanges),otherImpact=impact(model,other,otherChanges);
         if(otherImpact.worsened) {group.excluded.consecutive++;continue;}
-        if(!contextKnown(model,self,selfChanges)||!contextKnown(model,other,otherChanges)){group.excluded.context++;continue;}
-        const risks={consecutive:selfImpact.worsened,fragmented:selfImpact.fragmentation.worsened||otherImpact.fragmentation.worsened};
+        const contextMissing=!contextKnown(model,self,selfChanges)||!contextKnown(model,other,otherChanges);
+        const risks={consecutive:selfImpact.worsened,fragmented:selfImpact.fragmentation.worsened||otherImpact.fragmentation.worsened,context:contextMissing};
         const warnings=[];
+        if(risks.context) warnings.push('⚠️ 邊界參考不足：無法確認完整連班及破碎班風險，這是待確認候選人，請核對週期外班表後再決定是否換班。');
         if(risks.consecutive) {
           const days=Math.max(...selfImpact.worsenedRuns.map(r=>r.length));
           warnings.push(`⚠️ 連續上班 ${days} 天：您的連續工作區段因交換增加。`);
