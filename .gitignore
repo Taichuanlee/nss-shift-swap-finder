@@ -18,3 +18,7 @@ dist/
 
 # Private local schedule fixtures
 /test-data/
+
+# Cloudflare local runtime state and secrets
+.wrangler/
+.dev.vars*

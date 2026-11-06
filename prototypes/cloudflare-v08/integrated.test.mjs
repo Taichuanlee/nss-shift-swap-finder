@@ -172,7 +172,7 @@ test('central SSF: login, adapter, search, auto restore, revision switch, fallba
     assert.equal(await page.locator('#parse-result').isVisible(),false);
     assert.equal(await page.locator('#identity-selection').isVisible(),false);
     assert.ok(requests.every(r=>r.url.startsWith(server.origin+'/')));
-    assert.ok(requests.filter(r=>r.method==='POST').every(r=>r.url.endsWith('/api/login')||r.url.endsWith('/api/logout')));
+    assert.ok(requests.filter(r=>r.method==='POST').every(r=>r.url.endsWith('/api/login')||r.url.endsWith('/api/logout')||r.url.endsWith('/api/stats/events')));
     for(const width of [320,1280]) {await page.setViewportSize({width,height:900});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);}
     assert.deepEqual(errors,[]);
   }finally{if(browser)await browser.close();await server.close();}

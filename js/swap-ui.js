@@ -111,6 +111,8 @@
         status.textContent=`找到 ${total} 筆同班別換班建議。`;
         root.querySelector('#swap-results-note').textContent='只允許 A ↔ A、E ↔ E、N ↔ N。每筆只模擬一對日期，未修改班表。';
         resultsPanel.hidden=false;guide(resultsPanel);
+        // Optional isolated-build observer: errors never change a successful search.
+        try {ns.onSearchCompleted?.({model,employeeId:id});} catch {}
       } catch(error) {status.textContent=error.message;}
     });
     return {reset,setIdentity};

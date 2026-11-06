@@ -3,7 +3,8 @@
   'use strict';
   const ns=window.NSSShiftSwapFinder,controller=ns.ImportController;
   const $=id=>document.getElementById(id);
-  let operation=0,pending=null,expiryTimer=null,expiresAt=0;
+  const statsSource=Symbol('central-statistics-revision');
+  let operation=0,pending=null,expiryTimer=null,expiresAt=0,statsModel=null,statsRevision=null;
   function mode(source) {
     const unit=source==='central';
     $('source-unit').checked=unit;$('source-upload').checked=!unit;
@@ -66,6 +67,7 @@
     }catch {throw new Error('單位班表格式錯誤或驗證未通過，未載入任何資料。');}
     session(data);
     controller.acceptCentral(model,{revision:data.revision,publishedAt:data.payload.publishedAt});
+    statsModel=model;statsRevision=data.revision;model[statsSource]=data.revision;
     status('單位班表已載入，正式四週期由管理者確認。請在下方選擇自己並確認身分。'+(model.warnings.some(w=>w.code==='BLANK_SHIFT')?' 資料不完整：空白班別為未知／未排定；整排空白者不參與搜尋，涉及未知日期的交換候選將排除。':''));
   }
   function restore() {
@@ -113,5 +115,20 @@
     if(controller.getSource()==='central'){controller.clearCentral();restore();}
     else if(expiresAt){if(Date.now()>=expiresAt)expire();else expiryTimer=setTimeout(expire,expiresAt-Date.now());}
   });
+  ns.onSearchCompleted=({model,employeeId})=>{
+    if(controller.getSource()!=='central'||(!statsModel||model[statsSource]!==statsRevision)||Date.now()>=expiresAt)return;
+    // One ID per completed click. A bounded retry uses the SAME ID, never localStorage.
+    const body=JSON.stringify({eventId:crypto.randomUUID(),employeeId,revision:statsRevision});
+    const send=async()=>{
+      for(let attempt=0;attempt<2;attempt++) {
+        try {
+          const result=await fetch('/api/stats/events',{method:'POST',credentials:'same-origin',cache:'no-store',
+            headers:{'Content-Type':'application/json'},body,signal:AbortSignal.timeout(5000)});
+          if(result.ok||result.status<500)return;
+        }catch {}
+      }
+    };
+    void send().catch(()=>{});
+  };
   mode('central');controller.prepareCentral();restore();
 })();

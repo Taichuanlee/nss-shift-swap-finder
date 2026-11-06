@@ -1,48 +1,53 @@
-/* Cloudflare Durable Object: atomic, idempotent per-publication counters.
- * Internal-only storage primitive. The public Worker MUST authenticate,
- * validate the current publication and employee before invoking this object.
- */
+// Dedicated SQLite Durable Object. Never reads or writes schedule KV.
 export class SearchStatsCounter {
   constructor(ctx) {
-    this.ctx=ctx;
-    this.sql=ctx.storage.sql;
-    this.sql.exec('CREATE TABLE IF NOT EXISTS meta (id INTEGER PRIMARY KEY CHECK (id=1), generation INTEGER NOT NULL)');
-    this.sql.exec('INSERT OR IGNORE INTO meta(id,generation) VALUES(1,0)');
-    this.sql.exec('CREATE TABLE IF NOT EXISTS events (generation INTEGER NOT NULL, event_id TEXT NOT NULL, employee_id TEXT NOT NULL, PRIMARY KEY(generation,event_id))');
-    this.sql.exec('CREATE TABLE IF NOT EXISTS counts (generation INTEGER NOT NULL, employee_id TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(generation,employee_id))');
+    this.ctx=ctx;this.sql=ctx.storage.sql;
+    this.sql.exec('CREATE TABLE IF NOT EXISTS revoked_sessions (token TEXT PRIMARY KEY, expires INTEGER)');
+    this.sql.exec('CREATE TABLE IF NOT EXISTS cycles (cycle TEXT PRIMARY KEY, start TEXT, end TEXT, expires INTEGER)');
+    this.sql.exec('CREATE TABLE IF NOT EXISTS search_events (event TEXT PRIMARY KEY, cycle TEXT, employee TEXT)');
+    this.sql.exec('CREATE TABLE IF NOT EXISTS search_counts (cycle TEXT, employee TEXT, name TEXT, count INTEGER, PRIMARY KEY(cycle,employee))');
   }
-  generation() {return this.sql.exec('SELECT generation FROM meta WHERE id=1').one().generation;}
-  // Called only by the authenticated Worker. Do not forward untrusted URLs.
-  async fetch(request) {
-    if(request.method!=='POST')return new Response('Method Not Allowed',{status:405});
-    let body;try {body=await request.json();}catch{return new Response('Invalid request',{status:400});}
-    if(body?.action==='count') {
-      if(typeof body.employeeId!=='string'||body.employeeId.length<1||body.employeeId.length>128||
-        typeof body.eventId!=='string'||!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.eventId))
-        return new Response('Invalid event',{status:400});
-      const inserted=this.ctx.storage.transactionSync(()=>{
-        const generation=this.generation();
-        this.sql.exec('INSERT OR IGNORE INTO events(generation,event_id,employee_id) VALUES(?,?,?)',generation,body.eventId,body.employeeId);
-        const changed=this.sql.exec('SELECT changes() AS n').one().n;
-        if(changed===1)this.sql.exec('INSERT INTO counts(generation,employee_id,count) VALUES(?,?,1) ON CONFLICT(generation,employee_id) DO UPDATE SET count=count+1',generation,body.employeeId);
-        return changed===1;
+  async cleanup() {
+    const now=Date.now();
+    this.ctx.storage.transactionSync(()=>{
+      this.sql.exec('DELETE FROM search_events WHERE cycle IN (SELECT cycle FROM cycles WHERE expires<=?)',now);
+      this.sql.exec('DELETE FROM search_counts WHERE cycle IN (SELECT cycle FROM cycles WHERE expires<=?)',now);
+      this.sql.exec('DELETE FROM cycles WHERE expires<=?',now);
+      this.sql.exec('DELETE FROM revoked_sessions WHERE expires<=?',now);
+    });
+    const next=this.sql.exec('SELECT MIN(expires) AS expiry FROM (SELECT expires FROM cycles UNION ALL SELECT expires FROM revoked_sessions)').one().expiry;
+    if(next!==null)await this.ctx.storage.setAlarm(next);
+    else await this.ctx.storage.deleteAlarm();
+  }
+  async alarm() {return this.ctx.blockConcurrencyWhile(()=>this.cleanup());}
+  async fetch(request) {return this.ctx.blockConcurrencyWhile(()=>this.handle(request));}
+  async handle(request) {
+    if(request.method!=='POST')return new Response(null,{status:405});
+    const b=await request.json();await this.cleanup();
+    if(b.action==='count') {
+      if(!Number.isSafeInteger(b.expires)||b.expires<=Date.now())return Response.json({error:'expired_cycle'},{status:410});
+      const recorded=this.ctx.storage.transactionSync(()=>{
+        this.sql.exec('INSERT OR IGNORE INTO cycles(cycle,start,end,expires) VALUES(?,?,?,?)',b.cycle,b.start,b.end,b.expires);
+        this.sql.exec('INSERT OR IGNORE INTO search_events(event,cycle,employee) VALUES(?,?,?)',b.eventId.toLowerCase(),b.cycle,b.employeeId);
+        if(this.sql.exec('SELECT changes() AS n').one().n!==1)return false;
+        this.sql.exec('INSERT INTO search_counts(cycle,employee,name,count) VALUES(?,?,?,1) ON CONFLICT(cycle,employee) DO UPDATE SET count=count+1,name=excluded.name',b.cycle,b.employeeId,b.name);
+        return true;
       });
-      return Response.json({recorded:inserted});
+      await this.cleanup();return Response.json({recorded});
     }
-    if(body?.action==='summary') {
-      const generation=this.generation(),counts={};
-      for(const row of this.sql.exec('SELECT employee_id,count FROM counts WHERE generation=?',generation))counts[row.employee_id]=row.count;
-      return Response.json({counts});
+    if(b.action==='revoke') {
+      this.sql.exec('INSERT OR IGNORE INTO revoked_sessions(token,expires) VALUES(?,?)',b.token,b.expires);
+      await this.cleanup();return Response.json({revoked:true});
     }
-    if(body?.action==='reset') {
-      this.ctx.storage.transactionSync(()=>{
-        this.sql.exec('UPDATE meta SET generation=generation+1 WHERE id=1');
-        // Reset removes only this statistics object's counters, never schedules.
-        this.sql.exec('DELETE FROM events');
-        this.sql.exec('DELETE FROM counts');
-      });
-      return Response.json({reset:true});
+    if(b.action==='summary') {
+      if(b.token&&this.sql.exec('SELECT COUNT(*) AS n FROM revoked_sessions WHERE token=?',b.token).one().n)return Response.json({error:'unauthorized'},{status:401});
+      const cycles=[];
+      for(const c of this.sql.exec('SELECT * FROM cycles ORDER BY start DESC')) {
+        const people=[...this.sql.exec('SELECT employee AS id,name,count AS searches FROM search_counts WHERE cycle=? ORDER BY count DESC,employee',c.cycle)];
+        cycles.push({cycleStartDate:c.start,cycleEndDate:c.end,expiresAt:new Date(c.expires).toISOString(),totalSearches:people.reduce((n,p)=>n+p.searches,0),selectedIdentities:people.length,people});
+      }
+      return Response.json({cycles});
     }
-    return new Response('Not Found',{status:404});
+    return new Response(null,{status:404});
   }
 }

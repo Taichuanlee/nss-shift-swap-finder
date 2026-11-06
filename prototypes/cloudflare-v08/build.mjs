@@ -14,8 +14,9 @@ export async function build() {
   const runtime = await publicationRuntimeSource();
   const html = await readFile(path.join(directory,'public/index.html'),'utf8');
   const app = await readFile(path.join(directory,'public/app.js'),'utf8');
-  const worker = await readFile(path.join(directory,'worker.mjs'),'utf8');
   await mkdir(path.join(directory,'dist'),{recursive:true});
+  for(const name of ['stats-core.mjs','stats-counter.mjs'])await writeFile(path.join(directory,'dist',name),await readFile(path.join(directory,name)));
+  const worker = await readFile(path.join(directory,'worker.mjs'),'utf8');
   await writeFile(path.join(directory,'dist/worker.mjs'),runtime+`const SSF_PATHS=new Set();\nconst INDEX_HTML=${JSON.stringify(html)};\nconst APP_JS=${JSON.stringify(app)};\n`+worker);
   // The only on-disk schedule fixtures are explicitly fictional.
   const dates=Array.from({length:40},(_,i)=>new Date(Date.UTC(2026,10,4+i)).toISOString().slice(0,10));

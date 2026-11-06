@@ -6,7 +6,7 @@ export function cycleKey(publication) {
   const start=publication?.cycleStartDate,end=publication?.cycleEndDate;
   if(typeof start!=='string'||typeof end!=='string'||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(start)||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(end))throw new Error('invalid_cycle');
   const begin=Date.parse(start+'T00:00:00Z'),finish=Date.parse(end+'T00:00:00Z');
-  if(!Number.isFinite(begin)||finish-begin!==27*86400000)throw new Error('invalid_cycle');
+  if(!Number.isFinite(begin)||new Date(begin).toISOString().slice(0,10)!==start||new Date(finish).toISOString().slice(0,10)!==end||finish-begin!==27*86400000)throw new Error('invalid_cycle');
   return start+'_'+end;
 }
 export function selectedEmployee(publication,id) {

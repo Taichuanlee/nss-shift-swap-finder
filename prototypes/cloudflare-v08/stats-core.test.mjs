@@ -10,6 +10,7 @@ test('28-day cycle key validates exact range',()=>{
  assert.equal(cycleKey(schedule),'2026-12-07_2027-01-03');
  assert.throws(()=>cycleKey({...schedule,cycleEndDate:'2027-01-04'}));
  assert.throws(()=>cycleKey({...schedule,cycleStartDate:'bad'}));
+ assert.throws(()=>cycleKey({...schedule,cycleStartDate:'2026-02-30',cycleEndDate:'2026-03-29'}));
 });
 test('employee record is selected by unique ID, never name',()=>{
  assert.equal(selectedEmployee(schedule,'b').id,'b');

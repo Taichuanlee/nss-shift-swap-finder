@@ -1,3 +1,5 @@
+import {cycleKey,selectedEmployee,validEventId} from './stats-core.mjs';
+export {SearchStatsCounter} from './stats-counter.mjs';
 // Built with the unchanged publication runtime and public UI by build.mjs.
 const COOKIE='__Host-nss-ssf-test';
 const MAX_SCHEDULE_BYTES=256*1024;
@@ -141,6 +143,7 @@ async function publish(request,env) {
 async function handle(request,env) {
   const url=new URL(request.url),now=Date.now();
   if(url.protocol!=='https:')return response({error:'https_required'},400);
+  if(url.pathname.startsWith('/api/stats/'))return statsAPI(request,env,url,now);
   if(['/api/admin/login','/api/admin/logout','/api/admin/session','/api/admin/publish','/api/admin/publication'].includes(url.pathname))return adminAPI(request,env,url,now);
   if(url.pathname.startsWith('/api/admin/'))return response({error:'not_found'},404);
   const adminPage=['/admin','/admin/','/admin.html'].includes(url.pathname);
@@ -209,3 +212,81 @@ export default {
     try {return await handle(request,env);}catch {return response({error:'service_unavailable'},503);}
   }
 };
+
+// Statistics auth uses a separate secret and signed, short-lived cookie; no KV writes.
+const STATS_COOKIE='__Host-ssf-stats';
+const statsCookieValue=request=>(request.headers.get('Cookie')||'').split(';').map(v=>v.trim()).find(v=>v.startsWith(STATS_COOKIE+'='))||'';
+async function statsSignature(env,value) {
+  const key=await crypto.subtle.importKey('raw',encoder.encode(env.STATS_ACCESS_CODE),{name:'HMAC',hash:'SHA-256'},false,['sign']);
+  return hex(await crypto.subtle.sign('HMAC',key,encoder.encode('stats-v1:'+value)));
+}
+async function statsSession(request,env,now) {
+  const entries=(request.headers.get('Cookie')||'').split(';').map(s=>s.trim()).filter(s=>s.startsWith(STATS_COOKIE+'='));
+  if(entries.length!==1)return false;
+  const token=entries[0].slice(STATS_COOKIE.length+1),parts=token.split('.');
+  if(parts.length!==3||!/^\d{13}$/.test(parts[0])||!/^[a-f0-9]{32}$/.test(parts[1])||!/^[a-f0-9]{64}$/.test(parts[2]))return false;
+  const expiry=Number(parts[0]);if(expiry<=now||expiry>now+900000)return false;
+  const expected=await statsSignature(env,parts.slice(0,2).join('.'));let diff=0;
+  for(let i=0;i<64;i++)diff|=expected.charCodeAt(i)^parts[2].charCodeAt(i);
+  return diff===0?expiry:false;
+}
+async function statsAPI(request,env,url,now) {
+  const path=url.pathname;
+  const method=path==='/api/stats/summary'?'GET':'POST';
+  if(!['/api/stats/login','/api/stats/logout','/api/stats/summary','/api/stats/events'].includes(path))return response({error:'not_found'},404);
+  if(request.method!==method)return response({error:'method_not_allowed'},405,{Allow:method});
+  if(request.headers.get('Sec-Fetch-Site')==='cross-site'||(request.headers.has('Origin')&&request.headers.get('Origin')!==url.origin)||(method==='POST'&&request.headers.get('Origin')!==url.origin))return response({error:'origin_rejected'},403);
+  const stub=()=>env.SEARCH_STATS.get(env.SEARCH_STATS.idFromName('cycle-search-stats-v1'));
+  if(path==='/api/stats/events') {
+    settings(env);
+    const active=await session(request,env,now);
+    if(!active)return response({error:'unauthorized'},401);
+    if(!env.STATS_EVENT_LIMITER?.limit||!env.SEARCH_STATS)return response({error:'stats_unavailable'},503);
+    for(const key of ['stats-session:'+active.key,'stats-ip:'+(request.headers.get('CF-Connecting-IP')||'local')])if(!(await env.STATS_EVENT_LIMITER.limit({key})).success)return response({error:'too_many_requests'},429);
+    if(request.headers.get('Content-Type')?.split(';')[0]!=='application/json')return response({error:'json_required'},415);
+    let body;try {body=await readBody(request,1024);}catch{return response({error:'invalid_request'},400);}
+    if(!validEventId(body?.eventId))return response({error:'invalid_event'},422);
+    const current=await readSchedule(env);if(current instanceof Response)return current;
+    if(body.revision!==await digest(current.raw))return response({error:'stale_publication'},409);
+    let model,employee,key;try {
+      model=publicationRuntime.SchedulePublication.load(current.payload);key=cycleKey(model);employee=selectedEmployee(model,body.employeeId);
+    }catch{return response({error:'invalid_event'},422);}
+    // Retain until 180 full days after the final cycle day (Taipei UTC+8).
+    const expires=Date.parse(model.cycleEndDate+'T16:00:00Z')+180*86400000;
+    if(expires<=now)return response({error:'expired_cycle'},410);
+    if(!await session(request,env,Date.now()))return response({error:'unauthorized'},401);
+    const result=await stub().fetch(new Request('https://stats.internal/',{method:'POST',body:JSON.stringify({action:'count',cycle:key,start:model.cycleStartDate,end:model.cycleEndDate,expires,eventId:body.eventId,employeeId:employee.id,name:employee.name||''})}));
+    return response(await result.json(),result.status);
+  }
+  if(!validCode(env.STATS_ACCESS_CODE)||env.STATS_ACCESS_CODE.length<16||[env.ACCESS_CODE,env.ADMIN_ACCESS_CODE].includes(env.STATS_ACCESS_CODE)||!env.STATS_LOGIN_LIMITER?.limit||!env.SEARCH_STATS)return response({error:'stats_not_configured'},503);
+  const clear=`${STATS_COOKIE}=; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=0`;
+  if(path==='/api/stats/logout') {
+    const expires=await statsSession(request,env,now);
+    if(expires)await stub().fetch(new Request('https://stats.internal/',{method:'POST',body:JSON.stringify({action:'revoke',token:await digest(statsCookieValue(request)),expires})}));
+    return response({authenticated:false},200,{'Set-Cookie':clear});
+  }
+  if(path==='/api/stats/login') {
+    for(const key of ['stats-account','stats-ip:'+(request.headers.get('CF-Connecting-IP')||'local')])if(!(await env.STATS_LOGIN_LIMITER.limit({key})).success)return response({error:'too_many_attempts'},429,{'Retry-After':'60'});
+    if(request.headers.get('Content-Type')?.split(';')[0]!=='application/json')return response({error:'json_required'},415);
+    let body;try {body=await readBody(request,1024);}catch{return response({error:'invalid_request'},400);}
+    if(!validCode(body?.code)||!await matchesCode(body.code,env.STATS_ACCESS_CODE))return response({error:'invalid_code'},401);
+    const value=(now+900000)+'.'+hex(crypto.getRandomValues(new Uint8Array(16)));
+    return response({authenticated:true},200,{'Set-Cookie':`${STATS_COOKIE}=${value}.${await statsSignature(env,value)}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=900`});
+  }
+  const expiry=await statsSession(request,env,now);
+  if(!expiry)return response({error:'unauthorized'},401,{'Set-Cookie':clear});
+  const result=await stub().fetch(new Request('https://stats.internal/',{method:'POST',body:JSON.stringify({action:'summary',token:await digest(statsCookieValue(request))})}));
+  const data=await result.json();
+  // Include the current cycle even before its first search. Historical identity
+  // snapshots stay in stats storage, independent of subsequent publications.
+  if(result.ok)try {
+    const current=await readSchedule(env);
+    if(!(current instanceof Response)) {
+      const model=publicationRuntime.SchedulePublication.load(current.payload);cycleKey(model);
+      const expires=Date.parse(model.cycleEndDate+'T16:00:00Z')+180*86400000;
+      if(expires>now&&!data.cycles.some(c=>c.cycleStartDate===model.cycleStartDate&&c.cycleEndDate===model.cycleEndDate))data.cycles.push({cycleStartDate:model.cycleStartDate,cycleEndDate:model.cycleEndDate,expiresAt:new Date(expires).toISOString(),totalSearches:0,selectedIdentities:0,people:[]});
+      data.cycles.sort((a,b)=>b.cycleStartDate.localeCompare(a.cycleStartDate));
+    }
+  }catch {}
+  return response({...data,expiresAt:new Date(expiry).toISOString()},result.status);
+}

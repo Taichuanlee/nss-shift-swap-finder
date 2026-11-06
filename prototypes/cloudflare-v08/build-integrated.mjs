@@ -46,16 +46,19 @@ export async function buildIntegrated() {
   if(!html.includes('id="central-login"')||!html.includes('central-schedule.js'))throw new Error('SSF integration insertion failed.');
   await save('index.html',html);
   for(const relative of ['css/style.css',...javascript.map(name=>`js/${name}.js`),...await vendorFiles()])await save(relative,await publicBytes(path.join(root,relative)));
-  for(const name of ['central-schedule.js','central-schedule.css','admin.html','admin-login.html','admin-auth.js','admin.js','admin.css'])await save(name,await publicBytes(path.join(directory,'integration',name)));
+  for(const name of ['central-schedule.js','central-schedule.css','admin.html','admin-login.html','admin-auth.js','admin.js','admin.css','stats.html','stats.js'])await save(name,await publicBytes(path.join(directory,'integration',name)));
   const routes=['/','/admin','/admin/','/admin/login',...inventory.map(name=>'/'+name)].sort();
+  for(const name of ['stats-core.mjs','stats-counter.mjs'])await writeFile(path.join(output,name),await readFile(path.join(directory,name)));
   const worker=await readFile(path.join(directory,'worker.mjs'),'utf8');
   await writeFile(path.join(output,'worker.mjs'),await publicationRuntimeSource()+`const SSF_PATHS=new Set(${JSON.stringify(routes)});\nconst INDEX_HTML=''; const APP_JS='';\n`+worker);
   await writeFile(path.join(output,'wrangler.jsonc'),JSON.stringify({name:'nss-ssf-v08-test',main:'worker.mjs',
     compatibility_date:'2026-10-20',workers_dev:true,keep_vars:true,
     assets:{directory:'./public',binding:'ASSETS',run_worker_first:true,html_handling:'none'},
     vars:{SYNTHETIC_ONLY:'true'},
-    secrets:{required:['ACCESS_CODE','ADMIN_ACCESS_CODE']},
-    ratelimits:[{name:'LOGIN_LIMITER',namespace_id:'8808',simple:{limit:50,period:60}},{name:'ADMIN_LOGIN_LIMITER',namespace_id:'8809',simple:{limit:5,period:60}}],
+    secrets:{required:['ACCESS_CODE','ADMIN_ACCESS_CODE','STATS_ACCESS_CODE']},
+    durable_objects:{bindings:[{name:'SEARCH_STATS',class_name:'SearchStatsCounter'}]},
+    migrations:[{tag:'v1.0.2-stats',new_sqlite_classes:['SearchStatsCounter']}],
+    ratelimits:[{name:'STATS_LOGIN_LIMITER',namespace_id:'8810',simple:{limit:5,period:60}},{name:'STATS_EVENT_LIMITER',namespace_id:'8811',simple:{limit:120,period:60}},{name:'LOGIN_LIMITER',namespace_id:'8808',simple:{limit:50,period:60}},{name:'ADMIN_LOGIN_LIMITER',namespace_id:'8809',simple:{limit:5,period:60}}],
     kv_namespaces:[{binding:'SCHEDULE_KV',id:'745fd00938e14081823e0b5a9239ffcd'}]},null,2));
   await writeFile(path.join(output,'asset-inventory.json'),JSON.stringify(inventory.sort(),null,2));
   return {output,assets,inventory};
