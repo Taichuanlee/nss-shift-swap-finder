@@ -2,7 +2,7 @@
   'use strict';
   const $=id=>document.getElementById(id);let timer;
   function clear(){clearTimeout(timer);$('stats-cycles').replaceChildren();$('stats-content').hidden=true;$('stats-login').hidden=false;}
-  async function api(path,body){const r=await fetch('/api/stats/'+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.timeout(10000)});if(!r.ok)throw Error(r.status===401?'密碼錯誤或登入到期，請重新登入。':r.status===429?'嘗試次數過多，請稍後再試。':'統計暫時無法使用。');return r.json();}
+  async function api(path,body){const r=await fetch('/api/stats/'+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.timeout(10000)});if(!r.ok)throw Error(r.status===401?'密碼錯誤或登入到期，請使用恰好 6 位數字（0-9）的統計 PIN 重新登入。':r.status===429?'嘗試次數過多，請稍後再試。':'統計暫時無法使用。');return r.json();}
   function el(tag,text){const n=document.createElement(tag);n.textContent=text;return n;}
   async function load(){
     clear();try{const data=await api('summary');$('stats-login').hidden=true;$('stats-content').hidden=false;

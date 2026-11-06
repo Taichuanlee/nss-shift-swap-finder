@@ -27,3 +27,20 @@ test('counter increment rolls back when a write fails',async()=>{
  const f=counterFixture();f.db.exec("CREATE TRIGGER fail_count BEFORE INSERT ON search_counts BEGIN SELECT RAISE(ABORT, 'failure'); END");
  await assert.rejects(f.send(event()));assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM search_events').get().n,0);
 });
+test('persistent global budget has minute and daily caps, bounded retry and no sliding lockout',async()=>{
+ const f=counterFixture(),realNow=Date.now;let now=realNow();Date.now=()=>now;
+ try {
+  for(let minute=0;minute<20;minute++) {
+   for(let i=0;i<5;i++)assert.equal((await f.send({action:'login-attempt'})).status,200);
+   assert.equal((await f.send({action:'login-attempt'})).status,429);now+=60000;
+  }
+  const blocked=await f.send({action:'login-attempt'});assert.equal(blocked.status,429);assert.ok(Number(blocked.headers.get('Retry-After'))>60);
+  now+=86400000;assert.equal((await f.send({action:'login-attempt'})).status,200);
+  assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM login_budget').get().n,2);
+ }finally{Date.now=realNow;}
+});
+test('signing key is random, durable and independent of the PIN',async()=>{
+ const f=counterFixture(),a=await (await f.send({action:'signing-key'})).json(),b=await (await f.send({action:'signing-key'})).json();
+ assert.match(a.key,/^[a-f0-9]{64}$/);assert.equal(a.key,b.key);
+ assert.notEqual(a.key,(await (await counterFixture().send({action:'signing-key'})).json()).key);
+});

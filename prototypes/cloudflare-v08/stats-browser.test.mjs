@@ -12,7 +12,7 @@ const require=createRequire(import.meta.url),{chromium}=require('playwright');
 const {a}=await prepare(),pack=await buildIntegrated(),worker=(await import(pathToFileURL(path.join(pack.output,'worker.mjs')).href)).default;
 test('real search UI: zero candidates, repeated clicks, retries, invalid conditions/errors, failure isolation and private dashboard',async()=>{
  const kv=new MemoryKV(),counter=counterFixture(),yes={limit:async()=>({success:true})};kv.values.set('schedule:active',{value:a});
- const env={ACCESS_CODE:'test-nurse',ADMIN_ACCESS_CODE:'test-admin',STATS_ACCESS_CODE:'test-separate-stats-secret',SCHEDULE_KV:kv,LOGIN_LIMITER:yes,STATS_LOGIN_LIMITER:yes,STATS_EVENT_LIMITER:yes,SEARCH_STATS:{idFromName:n=>n,get:()=>counter.object},ASSETS:{fetch:async r=>{
+ const env={ACCESS_CODE:'test-nurse',ADMIN_ACCESS_CODE:'test-admin',STATS_ACCESS_CODE:'024681',SCHEDULE_KV:kv,LOGIN_LIMITER:yes,STATS_LOGIN_LIMITER:yes,STATS_EVENT_LIMITER:yes,SEARCH_STATS:{idFromName:n=>n,get:()=>counter.object},ASSETS:{fetch:async r=>{
   const file=new URL(r.url).pathname.slice(1);return new Response(await readFile(path.join(pack.assets,file)),{headers:{'Content-Type':file.endsWith('.html')?'text/html':file.endsWith('.css')?'text/css':'text/javascript'}});
  }}};
  const server=await startLocal(env,worker),profile=await mkdtemp(path.join(os.tmpdir(),'ssf-stats-browser-'));let browser;
@@ -49,7 +49,7 @@ test('real search UI: zero candidates, repeated clicks, retries, invalid conditi
   while(failures.length<2)await page.waitForResponse(r=>r.url().endsWith('/api/stats/events')&&r.status()===503);
   await page.unroute('**/api/stats/events');assert.equal(await summary(),5);assert.equal(kv.writes.length,writes);
   const dashboard=await browser.newPage();await dashboard.goto(server.origin+'/stats.html');assert.equal(await dashboard.locator('#stats-content').isVisible(),false);
-  await dashboard.locator('#stats-code').fill(env.ACCESS_CODE);await dashboard.locator('#stats-login button').click();await dashboard.waitForFunction(()=>document.getElementById('stats-status').textContent.includes('密碼錯誤'));
+  await dashboard.locator('#stats-code').fill('999999');await dashboard.locator('#stats-login button').click();await dashboard.waitForFunction(()=>document.getElementById('stats-status').textContent.includes('密碼錯誤'));
   await dashboard.locator('#stats-code').fill(env.STATS_ACCESS_CODE);await dashboard.locator('#stats-login button').click();await dashboard.waitForSelector('#stats-content:visible');
   assert.match(await dashboard.locator('#stats-cycles').textContent(),/總搜尋次數：5；被選取不同員工數：1/);assert.equal(await dashboard.locator('#stats-code').inputValue(),'');
   await dashboard.setViewportSize({width:320,height:900});assert.equal(await dashboard.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);

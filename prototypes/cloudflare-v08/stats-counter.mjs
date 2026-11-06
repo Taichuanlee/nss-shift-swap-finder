@@ -2,6 +2,8 @@
 export class SearchStatsCounter {
   constructor(ctx) {
     this.ctx=ctx;this.sql=ctx.storage.sql;
+    this.sql.exec('CREATE TABLE IF NOT EXISTS auth_state (id TEXT PRIMARY KEY, value TEXT)');
+    this.sql.exec('CREATE TABLE IF NOT EXISTS login_budget (period INTEGER PRIMARY KEY, started INTEGER, attempts INTEGER)');
     this.sql.exec('CREATE TABLE IF NOT EXISTS revoked_sessions (token TEXT PRIMARY KEY, expires INTEGER)');
     this.sql.exec('CREATE TABLE IF NOT EXISTS cycles (cycle TEXT PRIMARY KEY, start TEXT, end TEXT, expires INTEGER)');
     this.sql.exec('CREATE TABLE IF NOT EXISTS search_events (event TEXT PRIMARY KEY, cycle TEXT, employee TEXT)');
@@ -24,6 +26,32 @@ export class SearchStatsCounter {
   async handle(request) {
     if(request.method!=='POST')return new Response(null,{status:405});
     const b=await request.json();await this.cleanup();
+    if(b.action==='signing-key') {
+      // Private binding only. Never sign directly with a six-digit PIN: a cookie
+      // would otherwise provide an offline PIN verifier.
+      let row=[...this.sql.exec('SELECT value FROM auth_state WHERE id=?','signing-key')][0];
+      if(!row){const key=Array.from(crypto.getRandomValues(new Uint8Array(32)),v=>v.toString(16).padStart(2,'0')).join('');this.sql.exec('INSERT INTO auth_state(id,value) VALUES(?,?)','signing-key',key);row={value:key};}
+      return Response.json({key:row.value});
+    }
+    if(b.action==='login-attempt') {
+      // One persistent, globally serialized budget across IPs/colos. Windows
+      // start with the first attempt; denied attempts never extend a lockout.
+      const now=Date.now();
+      const retry=this.ctx.storage.transactionSync(()=>{
+        const rows=[...this.sql.exec('SELECT * FROM login_budget')];let retry=0;
+        for(const [period,max] of [[60000,5],[86400000,100]]) {
+          const row=rows.find(r=>r.period===period);
+          if(row&&now<row.started+period&&row.attempts>=max)retry=Math.max(retry,Math.ceil((row.started+period-now)/1000));
+        }
+        if(retry)return retry;
+        for(const period of [60000,86400000]) {
+          const row=rows.find(r=>r.period===period),active=row&&now<row.started+period;
+          this.sql.exec('INSERT OR REPLACE INTO login_budget(period,started,attempts) VALUES(?,?,?)',period,active?row.started:now,active?row.attempts+1:1);
+        }
+        return 0;
+      });
+      return Response.json({allowed:!retry},{status:retry?429:200,headers:retry?{'Retry-After':String(retry)}:{}});
+    }
     if(b.action==='count') {
       if(!Number.isSafeInteger(b.expires)||b.expires<=Date.now())return Response.json({error:'expired_cycle'},{status:410});
       const recorded=this.ctx.storage.transactionSync(()=>{

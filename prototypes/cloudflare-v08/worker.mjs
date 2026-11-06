@@ -214,11 +214,16 @@ export default {
 };
 
 // Statistics auth uses a separate secret and signed, short-lived cookie; no KV writes.
+const validStatsCode=value=>typeof value==='string'&&value.length===6&&/^[0-9]{6}$/.test(value);
 const STATS_COOKIE='__Host-ssf-stats';
 const statsCookieValue=request=>(request.headers.get('Cookie')||'').split(';').map(v=>v.trim()).find(v=>v.startsWith(STATS_COOKIE+'='))||'';
 async function statsSignature(env,value) {
-  const key=await crypto.subtle.importKey('raw',encoder.encode(env.STATS_ACCESS_CODE),{name:'HMAC',hash:'SHA-256'},false,['sign']);
-  return hex(await crypto.subtle.sign('HMAC',key,encoder.encode('stats-v1:'+value)));
+  const rootResponse=await env.SEARCH_STATS.get(env.SEARCH_STATS.idFromName('cycle-search-stats-v1')).fetch(new Request('https://stats.internal/',{method:'POST',body:JSON.stringify({action:'signing-key'})}));
+  if(!rootResponse.ok)throw Error('stats_unavailable');
+  const {key:root}=await rootResponse.json();
+  if(typeof root!=='string'||!/^[a-f0-9]{64}$/.test(root))throw Error('stats_unavailable');
+  const key=await crypto.subtle.importKey('raw',encoder.encode(root),{name:'HMAC',hash:'SHA-256'},false,['sign']);
+  return hex(await crypto.subtle.sign('HMAC',key,encoder.encode('stats-v2:'+env.STATS_ACCESS_CODE+':'+value)));
 }
 async function statsSession(request,env,now) {
   const entries=(request.headers.get('Cookie')||'').split(';').map(s=>s.trim()).filter(s=>s.startsWith(STATS_COOKIE+'='));
@@ -258,7 +263,7 @@ async function statsAPI(request,env,url,now) {
     const result=await stub().fetch(new Request('https://stats.internal/',{method:'POST',body:JSON.stringify({action:'count',cycle:key,start:model.cycleStartDate,end:model.cycleEndDate,expires,eventId:body.eventId,employeeId:employee.id,name:employee.name||''})}));
     return response(await result.json(),result.status);
   }
-  if(!validCode(env.STATS_ACCESS_CODE)||env.STATS_ACCESS_CODE.length<16||[env.ACCESS_CODE,env.ADMIN_ACCESS_CODE].includes(env.STATS_ACCESS_CODE)||!env.STATS_LOGIN_LIMITER?.limit||!env.SEARCH_STATS)return response({error:'stats_not_configured'},503);
+  if(!validStatsCode(env.STATS_ACCESS_CODE)||[env.ACCESS_CODE,env.ADMIN_ACCESS_CODE].includes(env.STATS_ACCESS_CODE)||!env.STATS_LOGIN_LIMITER?.limit||!env.SEARCH_STATS)return response({error:'stats_not_configured'},503);
   const clear=`${STATS_COOKIE}=; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=0`;
   if(path==='/api/stats/logout') {
     const expires=await statsSession(request,env,now);
@@ -267,9 +272,11 @@ async function statsAPI(request,env,url,now) {
   }
   if(path==='/api/stats/login') {
     for(const key of ['stats-account','stats-ip:'+(request.headers.get('CF-Connecting-IP')||'local')])if(!(await env.STATS_LOGIN_LIMITER.limit({key})).success)return response({error:'too_many_attempts'},429,{'Retry-After':'60'});
+    const budget=await stub().fetch(new Request('https://stats.internal/',{method:'POST',body:JSON.stringify({action:'login-attempt'})}));
+    if(!budget.ok)return response({error:'too_many_attempts'},budget.status===429?429:503,{'Retry-After':budget.headers.get('Retry-After')||'60'});
     if(request.headers.get('Content-Type')?.split(';')[0]!=='application/json')return response({error:'json_required'},415);
     let body;try {body=await readBody(request,1024);}catch{return response({error:'invalid_request'},400);}
-    if(!validCode(body?.code)||!await matchesCode(body.code,env.STATS_ACCESS_CODE))return response({error:'invalid_code'},401);
+    if(!validStatsCode(body?.code)||!await matchesCode(body.code,env.STATS_ACCESS_CODE))return response({error:'invalid_code'},401);
     const value=(now+900000)+'.'+hex(crypto.getRandomValues(new Uint8Array(16)));
     return response({authenticated:true},200,{'Set-Cookie':`${STATS_COOKIE}=${value}.${await statsSignature(env,value)}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=900`});
   }

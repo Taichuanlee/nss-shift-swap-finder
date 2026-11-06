@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SSF 搜尋統計</title><link rel="stylesheet" href="admin.css"><script src="stats.js" defer></script></head>
 <body class="stats-page"><main><h1>換班搜尋統計</h1><p>依被選取的員工記錄計數，不代表實際操作者。僅限授權管理者使用；請勿轉傳個別紀錄。</p>
-<form id="stats-login"><label>統計專用密碼 <input id="stats-code" type="password" autocomplete="current-password" required maxlength="128"></label><button>登入</button></form>
+<form id="stats-login"><label>統計專用 PIN（恰好 6 位數字 0–9） <input id="stats-code" type="password" autocomplete="current-password" required inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6"></label><button>登入</button></form>
 <p id="stats-status" role="status"></p><section id="stats-content" hidden><button id="stats-refresh" type="button">重新載入</button><button id="stats-logout" type="button">登出並清除畫面</button><div id="stats-cycles"></div></section>
 <p>成功完成搜尋計一次，零候選人也計。統計傳送失敗可能漏計；各 28 天週期獨立保存，週期結束後 180 天自動刪除。</p></main></body></html>

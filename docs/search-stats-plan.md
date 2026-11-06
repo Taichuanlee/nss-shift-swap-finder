@@ -29,10 +29,10 @@
 ## 獨立管理頁與安全邊界
 
 - `/stats.html` 是無員工資料的登入外殼；實際資料僅由 `GET /api/stats/summary` 提供。管理班表頁有連結，但班表管理員 cookie、護理端 cookie 都不能讀統計。
-- `STATS_ACCESS_CODE` 使用至少 16 字元的獨立高熵密碼，最長 128 字元，不得等於 `ACCESS_CODE` 或 `ADMIN_ACCESS_CODE`。僅保存於部署環境 secret，勿放到前端、repo、聊天或命令紀錄。
-- HMAC 簽署的隨機 session cookie，Secure / HttpOnly / SameSite=Strict / `__Host-`，15 分鐘期限，不滑動延長。密碼更換立即使舊簽章失效；登出把 cookie 指紋寫入專用 DO 撤銷表，至 session 到期自動刪除；增減其他角色 cookie 無法繞過撤銷。
+- `STATS_ACCESS_CODE` 使用恰好 6 位 ASCII 數字（0-9）的獨立 PIN，保留前導零，不自動去空白或轉換數字，不得等於 `ACCESS_CODE` 或 `ADMIN_ACCESS_CODE`。僅保存於部署環境 secret，勿放到前端、repo、聊天或命令紀錄。
+- 專用 DO 自動產生並持久保存 256-bit 隨機簽章金鑰，HMAC 訊息綁定目前 PIN；不以低熵 PIN 當簽章金鑰，避免 cookie 成為離線猜碼驗證器。HMAC 簽署的隨機 session cookie，Secure / HttpOnly / SameSite=Strict / `__Host-`，15 分鐘期限，不滑動延長。密碼更換立即使舊簽章失效；登出把 cookie 指紋寫入專用 DO 撤銷表，至 session 到期自動刪除；增減其他角色 cookie 無法繞過撤銷。
 - 寫入強制 exact same-origin、JSON、大小限制及護理端有效 session；管理讀取也拒絕跨來源與跨站請求。所有 API no-store，不允許 CORS；HTML 沿用 CSP / 禁止嵌入 / nosniff，表格以 textContent 呈現，無 HTML 插值。
-- `STATS_LOGIN_LIMITER` 同時限制 IP 與共用帳號（5/min）；`STATS_EVENT_LIMITER` 分別限制護理 session 與 IP（120/min）。限制由平台提供，不使用 KV 或 isolate-local 計數替代；namespace ID 必須和其他服務隔離。
+- `STATS_LOGIN_LIMITER` 同時限制 IP 與共用帳號（5/min）；`STATS_EVENT_LIMITER` 分別限制護理 session 與 IP（120/min）。保留平台限制，不使用 KV 或 isolate-local 計數替代。平台限制為 per-colo 近似計數，並非全球共用上限；另由固定的專用 DO 以 SQLite transaction 序列化所有登入嘗試，全球最多 5 次／60 秒及 100 次／24 小時（從首次嘗試起算，包含成功、錯碼及格式錯誤；成功與換 PIN 不重設額度，拒絕請求不延長鎖定）。回應 Retry-After；DO 失效則拒絕登入，無 fallback；namespace ID 必須和其他服務隔離。
 - 共用護理存取碼只能證明有讀取班表資格，不能證明身分或搜尋真的由人操作。擁有合法 session 的人仍可偽造統計事件；因此數字是使用估計，不是不可偽造的操作稽核。若將來需要此保證，必須改成伺服器執行搜尋／個別身分授權，而非僅加上前端旗標。
 - 前端明示記錄範圍、保存期限及授權管理者可見性。管理者需遵守單位告知及資料使用規則，不以此推論個人工作績效。
 
@@ -67,3 +67,19 @@ python3 -B tests/server.test.py
 5. 設定三個獨立 secret 及四個 limiter bindings（原 LOGIN/ADMIN_LOGIN，加 STATS_LOGIN/STATS_EVENT）。核對 ASSETS run_worker_first、HTTPS、CSP、secret 及 Worker 路由，使用合成班表驗收完整流程與 alarm。
 6. 正式上線前另行授權並確認告知、可存取人員、真實班表來源、現有 KV binding、migration／回復策略。統計只用專用 DO，不能往正式班表 KV 寫統計或清除班表。現有發布 API 仍保留原有明確發布行為，這次沒有呼叫它。
 7. 回復 v1.0.1 僅切回已核對的舊程式與設定；勿刪班表 KV。統計 DO 的清理 alarm 仍需維持至最後週期到期，不因回復而留下無期限個資。
+
+## 六位 PIN 風險與安全設定
+
+六位數字只有 1,000,000 種（約 19.9 bits）。單靠 IP 限流可被換 IP 繞過；平台共用帳號限流也是每個 colo 的近似值，不能當全球精確防護。[Cloudflare 限流範圍](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/)。新增 DO 全球額度後，均勻隨機 PIN 在 100 個不同猜測下命中機率最多 0.01%／24 小時額度；長期持續猜測風險仍會累積，常見 PIN 更容易猜中。初次及窗口交界可能有短時間 burst；不是滑動窗口。共用額度也可被惡意耗盡造成管理者暫時無法登入（最長至日窗口到期），既有 session 與班表搜尋不受此登入額度影響。六位 PIN 並非高熵密碼的同等替代；如需更強保護應另加個別身分或 Cloudflare Access。
+
+簽章根金鑰只經私有 DO binding 傳回 Worker，絕不回傳瀏覽器、不記錄日誌；不保存 PIN 或其雜湊至 SQLite／班表 KV。新增表使用 CREATE IF NOT EXISTS，不重建統計、不新增 DO class migration。既有 cookie 因簽章版本更換而需重新登入。
+
+請由管理者自行在 Cloudflare Dashboard 選定**已核對隔離的測試 Worker** → Settings → Variables and Secrets，將 STATS_ACCESS_CODE 設為 Secret，輸入自行選擇的六位 PIN，且與另外兩組存取碼不同。不要貼到聊天、終端命令、repo 或截圖。測試 fixture 中的數值均為公開合成測試資料，不能作實際 PIN。正式 Worker 的設定及上線另需授權。
+
+## 六位 PIN 修改驗證（2026-11-06）
+
+完整 Node 回歸 166/166 通過；後續新增「僅持有 PIN 無法偽造 cookie」案例並重跑統計 API／workerd 測試。Python Pages 9/9、本機 server 3/3 及 git diff --check 通過。SQLite 測試覆蓋 100 次日額度、時間窗口恢復、併發額度及簽章金鑰持久保存；真實 workerd 亦驗證併發 20 次只有 5 次獲准。
+
+僅更新隔離 QA Worker `nss-ssf-v102-qa-20261106`。部署前核對 QA 班表 KV、DO 與 limiter namespace 不與正式共用；遠端驗證六位 PIN 登入、格式拒絕、15 分鐘 cookie、登出後 cookie 重播拒絕及登入 429。沒有呼叫任何發布／班表寫入 API。正式 `nss-ssf` 修改時間仍與先前 QA 前清冊一致，設定與班表內容前後比對不變；下載程式的 multipart boundary 每次不同，另以解析後的內容核對穩定，不能把原始封裝雜湊當程式版本。
+
+QA 的舊長密碼已替換成不公開的臨時隨機六位 PIN（不儲存到 repo 或輸出）。管理者請依上一節在 QA Worker 自行設定新 PIN；不使用先前測試密碼。正式 v1.0.1、main 與正式班表 KV 未變更。

@@ -19,5 +19,7 @@ test('workerd: SQLite binding, transactional deduplication and automatic alarm c
   // No summary request triggers expiry: inspect the platform alarm itself.
   for(let i=0;i<100&&(await inspect()).alarm!==null;i++)await new Promise(r=>setTimeout(r,50));
   assert.equal((await inspect()).alarm,null);assert.deepEqual((await inspect()).cycles,[]);assert.deepEqual((await (await call({action:'summary'})).json()).cycles,[]);
+  const attempts=await Promise.all(Array.from({length:20},()=>call({action:'login-attempt'})));assert.equal(attempts.filter(r=>r.status===200).length,5);assert.equal(attempts.filter(r=>r.status===429).length,15);
+  const key=await (await call({action:'signing-key'})).json();assert.match(key.key,/^[a-f0-9]{64}$/);assert.deepEqual(await (await call({action:'signing-key'})).json(),key);
  }finally{await mf.dispose();}
 });
