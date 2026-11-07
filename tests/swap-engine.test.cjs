@@ -160,7 +160,7 @@ test('runtime contains no SOS parameter, state, element or cross-shift enablemen
  assert.equal(E.search.length,4);
 });
 
-test('boundary uncertainty remains visible with explicit warning, not certified safe',()=>{
+test('boundary uncertainty retains internal warning and risk metadata',()=>{
  const s=setup(28,'2026-12-07',0);
  s.self.shifts[s.d1]='OF';s.d1=s.ds[11];s.self.shifts[s.d1]='N';
  s.d2=s.ds[3];s.self.shifts[s.d2]='OF';s.other.shifts[s.d2]='N';

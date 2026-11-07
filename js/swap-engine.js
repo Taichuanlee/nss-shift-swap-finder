@@ -102,10 +102,12 @@
     }
     return true;
   }
-  function search(model,id,wantedDate,exchangeDates) {
+  function search(model,id,wantedDate,exchangeDates, settings={}) {
     const allowed=options(model,id), self=validEmployee(model,id);
     if(!allowed.workDates.includes(wantedDate)) throw new Error('想休日期必須是正式四週期內的 A／E／N 工作日。');
     if(!Array.isArray(exchangeDates)||!exchangeDates.length||exchangeDates.some(d=>!allowed.leaveDates.includes(d))) throw new Error('請選擇正式四週期內至少一個自己的休假日作為交換日期。');
+    const special=settings?.mode==='special';
+    if(special && (exchangeDates.length!==1 || !['A','E','N'].includes(settings.targetShift))) throw new Error('特殊搜尋請選擇單一交換日期及 A／E／N 班別。');
     return [...new Set(exchangeDates)].sort().map(exchangeDate=>{
       const group={exchangeDate,results:[],excluded:{invalid:0,direction:0,shift:0,consecutive:0,context:0}};
       for(const candidate of model.employees) {
@@ -114,8 +116,8 @@
         if(!other) {group.excluded.invalid++;continue;}
         const d1=self.shifts[wantedDate],d2=other.shifts[exchangeDate];
         if(kind(other.shifts[wantedDate])!=='leave'||kind(d2)!=='work') {group.excluded.direction++;continue;}
-        // Compare the two original workdays, before any simulation. No override exists.
-        if(!['A','E','N'].includes(d1) || d1!==d2) {group.excluded.shift++;continue;}
+        // Special search changes only matching; both modes share B0 simulation and safety checks.
+        if(!['A','E','N'].includes(d1) || (special ? d2!==settings.targetShift : d1!==d2)) {group.excluded.shift++;continue;}
         const selfChanges={[wantedDate]:other.shifts[wantedDate],[exchangeDate]:d2};
         const otherChanges={[wantedDate]:d1,[exchangeDate]:self.shifts[exchangeDate]};
         if(!assessmentKnown(model,self,selfChanges)||!assessmentKnown(model,other,otherChanges)){group.excluded.invalid++;continue;}
@@ -133,7 +135,7 @@
           const roles=[selfImpact.fragmentation.worsened?'您':null,otherImpact.fragmentation.worsened?'對方':null].filter(Boolean).join('與');
           warnings.push(`⚠️ 破碎班：${roles}交換後新增或加劇上班、休假交錯的情況。`);
         }
-        group.results.push({employeeId:other.id,name:other.name,wantedDate,exchangeDate,sameShift:true,self:{before:{[wantedDate]:d1,[exchangeDate]:self.shifts[exchangeDate]},after:selfChanges,impact:selfImpact},other:{before:{[wantedDate]:other.shifts[wantedDate],[exchangeDate]:d2},after:otherChanges,impact:otherImpact},risks,warnings});
+        group.results.push({employeeId:other.id,name:other.name,wantedDate,exchangeDate,sameShift:d1===d2,...(special?{searchMode:'special',targetShift:settings.targetShift}:{}),self:{before:{[wantedDate]:d1,[exchangeDate]:self.shifts[exchangeDate]},after:selfChanges,impact:selfImpact},other:{before:{[wantedDate]:other.shifts[wantedDate],[exchangeDate]:d2},after:otherChanges,impact:otherImpact},risks,warnings});
       }
       group.results=sortResults(group.results);
       return group;
